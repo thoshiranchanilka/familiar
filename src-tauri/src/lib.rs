@@ -1,3 +1,5 @@
+pub mod normalize;
+
 use tauri::{Manager, PhysicalPosition};
 
 /// Margin between the overlay window and the screen's bottom-right corner, in logical pixels.
