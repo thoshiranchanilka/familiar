@@ -5,10 +5,12 @@ import { listen } from "@tauri-apps/api/event";
 import { initialState, reduce } from "../mood/reducer";
 import type { MascotEvent, MascotState, Mood } from "../mood/types";
 import { formatUsage } from "./usagePanel";
+import { createMascot } from "./mascot/mascot";
 
 interface Settings { corner: "br" | "bl" | "tr" | "tl"; size: number; autoHide: boolean; hidden: boolean }
 
 const NOTICE_MS = 5000;
+const ONBOARDING_MS = 20000;
 
 const style = document.createElement("style");
 style.textContent = `
@@ -27,9 +29,12 @@ style.textContent = `
   .row { display: flex; justify-content: space-between; gap: 10px; color: var(--panel-muted); font-variant-numeric: tabular-nums; }
   .bar { height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; margin-bottom: 3px; }
   .bar i { display: block; height: 100%; background: var(--accent); }
-  .mascot { display: grid; place-items: center; line-height: 1; animation: bob 1.6s ease-in-out infinite; }
-  @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
-  @media (prefers-reduced-motion: reduce) { .mascot { animation: none; } }
+  .mascot { display: block; cursor: pointer; transform-origin: 50% 100%; }
+  .mascot.pop-in { animation: pop-in .45s cubic-bezier(.2, 1.6, .4, 1) both; }
+  .mascot.pop-out { animation: pop-out .3s ease-in both; }
+  @keyframes pop-in { from { transform: scale(0); } to { transform: scale(1); } }
+  @keyframes pop-out { from { transform: scale(1); opacity: 1; } to { transform: scale(0); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .mascot.pop-in, .mascot.pop-out { animation: none; } }
 `;
 document.head.appendChild(style);
 
@@ -39,10 +44,11 @@ notice.className = "bubble";
 const panel = document.createElement("div");
 panel.className = "bubble panel";
 panel.hidden = true;
-const mascot = document.createElement("div");
+const mascot = document.createElement("canvas");
 mascot.className = "mascot";
-mascot.textContent = "🔥"; // placeholder until Ember lands in Task 8
+mascot.setAttribute("aria-label", "Ember, the Claude Puppet mascot");
 stage.append(notice, panel, mascot);
+const ember = createMascot(mascot);
 
 const LABELS: Record<Mood, string> = {
   greeting: "Hi!", idle: "", working: "Working…", thinking: "Thinking longer…",
@@ -76,23 +82,48 @@ function render() {
   stage.className = `corner-${settings.corner}`;
   const asleepHidden = settings.autoHide && state.mood === "sleeping" && !hovering;
   stage.classList.toggle("gone", settings.hidden || asleepHidden);
-  mascot.style.fontSize = `${settings.size}px`;
   mascot.style.width = mascot.style.height = `${settings.size}px`;
+  ember.setMood(state.mood);
   notice.textContent = serverError || (noticeUntil > now ? noticeText : "") || LABELS[state.mood];
   panel.hidden = !hovering;
   if (hovering) renderPanel();
 }
 
-function apply(input: MascotEvent | { tick: number }) {
-  state = reduce(state, input);
+function showNotice(text: string, ms = NOTICE_MS) {
+  noticeText = text;
+  noticeUntil = Date.now() + ms;
   render();
 }
+
+function apply(input: MascotEvent | { tick: number }) {
+  const before = state.mood;
+  state = reduce(state, input);
+  if (state.mood === "greeting" && before !== "greeting") ember.popIn();
+  render();
+}
+
+// First run: until Claude Code is connected, clicking Ember connects it.
+async function onMascotClick() {
+  const connected = await invoke<boolean>("mascot_status").catch(() => false);
+  if (connected) return;
+  try {
+    await invoke("mascot_install");
+    showNotice("Connected! Start a new Claude Code session to see me react.");
+  } catch (e) {
+    showNotice(String(e), ONBOARDING_MS);
+  }
+}
+mascot.addEventListener("click", onMascotClick);
+invoke<boolean>("mascot_status").then((connected) => {
+  if (!connected) showNotice("Hi, I'm Ember! Click me to connect Claude Code.", ONBOARDING_MS);
+});
+ember.popIn();
 
 listen<MascotEvent>("mascot-event", (e) => apply(e.payload));
 listen<string>("mascot-server-error", (e) => { serverError = e.payload; render(); });
 listen<Settings>("mascot-settings", (e) => { settings = e.payload; render(); });
 listen<boolean>("mascot-hover", (e) => { hovering = e.payload; render(); });
-listen<string>("mascot-notice", (e) => { noticeText = e.payload; noticeUntil = Date.now() + NOTICE_MS; render(); });
+listen<string>("mascot-notice", (e) => showNotice(e.payload));
 invoke<string | null>("bridge_error").then((m) => { if (m) { serverError = m; render(); } });
 invoke<Settings>("get_settings").then((s) => { settings = s; render(); });
 setInterval(() => apply({ tick: Date.now() }), 250);
