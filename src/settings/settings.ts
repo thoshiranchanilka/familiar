@@ -8,7 +8,7 @@ import { createMascot } from "../ui/mascot/mascot";
 import { animationNote, cornerLabel, statusText, type Corner } from "./view";
 
 interface Settings {
-  corner: Corner; size: number; autoHide: boolean; hidden: boolean;
+  corner: Corner; size: number; hidden: boolean;
   mascot: string; animation: Animation;
 }
 
@@ -74,8 +74,6 @@ size.addEventListener("input", () => {
 });
 size.addEventListener("change", () => save({ size: Number(size.value) }));
 
-$<HTMLInputElement>("auto-hide").addEventListener("change", (e) =>
-  save({ autoHide: (e.target as HTMLInputElement).checked }));
 
 $("code-toggle").addEventListener("click", async () => {
   $("error").textContent = "";
@@ -102,7 +100,6 @@ function render() {
   for (const { level, b } of levelButtons) b.setAttribute("aria-checked", String(level === settings.animation));
   if (document.activeElement !== size) size.value = String(settings.size);
   $("size-value").textContent = `${size.value} px`;
-  $<HTMLInputElement>("auto-hide").checked = settings.autoHide;
   $("animation-note").textContent = animationNote(lowPower);
   for (const v of [hero, ...cardViews.map((c) => c.view)]) v.setLowPower(lowPower);
 }

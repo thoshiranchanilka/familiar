@@ -2,19 +2,23 @@
 // the hover usage panel, and short notices.
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { isPresent } from "../mood/presence";
 import { initialState, nextDeadline, reduce } from "../mood/reducer";
 import type { MascotEvent, MascotState, Mood } from "../mood/types";
 import { formatUsage } from "./usagePanel";
+import { shouldShow } from "./visibility";
 import { createMascot } from "./mascot/mascot";
 import { getMascot, type Animation } from "./mascot/defs";
 
 interface Settings {
-  corner: "br" | "bl" | "tr" | "tl"; size: number; autoHide: boolean; hidden: boolean;
+  corner: "br" | "bl" | "tr" | "tl"; size: number; hidden: boolean;
   mascot: string; animation: Animation;
 }
 
 const NOTICE_MS = 5000;
 const ONBOARDING_MS = 20000;
+/** Length of the pop-out animation in the CSS below. */
+const POP_OUT_MS = 300;
 
 const style = document.createElement("style");
 style.textContent = `
@@ -60,11 +64,15 @@ const LABELS: Record<Mood, string> = {
 };
 
 let state: MascotState = initialState(Date.now());
-let settings: Settings = { corner: "br", size: 128, autoHide: false, hidden: false, mascot: "ember", animation: "gentle" };
+let settings: Settings = { corner: "br", size: 128, hidden: false, mascot: "ember", animation: "gentle" };
 let serverError = "";
 let noticeText = "";
 let noticeUntil = 0;
 let hovering = false;
+let connected = true; // corrected by mascot_status at startup
+let settingsOpen = false;
+let shown = false; // starts hidden; pops in once there is a reason to show
+let hideTimer: ReturnType<typeof setTimeout> | undefined;
 
 function bar(p: number | undefined) {
   const w = Math.max(0, Math.min(100, p ?? 0));
@@ -83,17 +91,38 @@ function renderPanel() {
 
 function render() {
   const now = Date.now();
+  const show = shouldShow({
+    hidden: settings.hidden, connected, present: isPresent(state, now), settingsOpen,
+    noticeActive: noticeUntil > now, serverError: serverError !== "",
+  });
   stage.className = `corner-${settings.corner}`;
-  const asleepHidden = settings.autoHide && state.mood === "sleeping" && !hovering;
-  stage.classList.toggle("gone", settings.hidden || asleepHidden);
   mascot.style.width = mascot.style.height = `${settings.size}px`;
   ember.setMascot(getMascot(settings.mascot));
   ember.setAnimation(settings.animation);
   ember.setMood(state.mood);
-  ember.setVisible(!(settings.hidden || asleepHidden));
+  setShown(show);
   notice.textContent = serverError || (noticeUntil > now ? noticeText : "") || LABELS[state.mood];
   panel.hidden = !hovering;
   if (hovering) renderPanel();
+}
+
+/** Pops the mascot in or waves it out (then stops drawing), and tells the core so hover tracking can idle. */
+function setShown(show: boolean) {
+  if (show === shown) return;
+  shown = show;
+  clearTimeout(hideTimer);
+  invoke("set_shown", { shown: show }).catch(() => {});
+  if (show) {
+    stage.classList.remove("gone");
+    ember.setVisible(true);
+    ember.popIn();
+  } else {
+    ember.popOut();
+    hideTimer = setTimeout(() => {
+      stage.classList.add("gone");
+      ember.setVisible(false);
+    }, POP_OUT_MS);
+  }
 }
 
 function showNotice(text: string, ms = NOTICE_MS) {
@@ -115,18 +144,18 @@ function schedule() {
 function apply(input: MascotEvent | { tick: number }) {
   const before = state.mood;
   state = reduce(state, input);
-  if (state.mood === "greeting" && before !== "greeting") ember.popIn();
+  if (shown && state.mood === "greeting" && before !== "greeting") ember.popIn();
   render();
   schedule();
 }
 
 // First run: until Claude Code is connected, clicking Ember connects it.
 async function onMascotClick() {
-  const connected = await invoke<boolean>("mascot_status").catch(() => false);
-  if (connected) return;
+  const isConnected = await invoke<boolean>("mascot_status").catch(() => false);
+  if (isConnected) return;
   try {
-    await invoke("mascot_install");
-    showNotice("Connected! Start a new Claude Code session to see me react.");
+    await invoke("mascot_install"); // emits mascot-connected
+    showNotice("Connected! I'll pop up when you start Claude Code.");
   } catch (e) {
     showNotice(String(e), ONBOARDING_MS);
   }
@@ -136,16 +165,21 @@ mascot.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   invoke("show_context_menu");
 });
-invoke<boolean>("mascot_status").then((connected) => {
-  if (!connected) showNotice("Hi, I'm Ember! Click me to connect Claude Code.", ONBOARDING_MS);
+invoke<boolean>("mascot_status").then((on) => {
+  connected = on;
+  if (!on) showNotice(`Hi, I'm ${getMascot(settings.mascot).name}! Click me to connect Claude Code.`, ONBOARDING_MS);
+  render();
 });
-ember.popIn();
+stage.classList.add("gone");
+ember.setVisible(false);
 
 listen<MascotEvent>("mascot-event", (e) => apply(e.payload));
 listen<string>("mascot-server-error", (e) => { serverError = e.payload; render(); });
 listen<Settings>("mascot-settings", (e) => { settings = e.payload; render(); });
 listen<boolean>("mascot-hover", (e) => { hovering = e.payload; render(); });
 listen<string>("mascot-notice", (e) => showNotice(e.payload));
+listen<boolean>("mascot-connected", (e) => { connected = e.payload; render(); });
+listen<boolean>("mascot-settings-open", (e) => { settingsOpen = e.payload; render(); });
 invoke<string | null>("bridge_error").then((m) => { if (m) { serverError = m; render(); } });
 listen<boolean>("mascot-low-power", (e) => ember.setLowPower(e.payload));
 invoke<boolean>("low_power").then((on) => ember.setLowPower(on));

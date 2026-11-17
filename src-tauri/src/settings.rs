@@ -28,8 +28,6 @@ pub struct Settings {
     pub animation: Animation,
     /// mascot size in logical px
     pub size: u32,
-    /// hide the mascot while it is asleep
-    pub auto_hide: bool,
     pub hidden: bool,
 }
 
@@ -43,7 +41,6 @@ impl Default for Settings {
             mascot: "ember".into(),
             animation: Animation::Gentle,
             size: 128,
-            auto_hide: false,
             hidden: false,
         }
     }
@@ -72,7 +69,6 @@ pub fn load(home: &Path) -> Settings {
     take(&obj, "mascot", &mut s.mascot);
     take(&obj, "animation", &mut s.animation);
     take(&obj, "size", &mut s.size);
-    take(&obj, "autoHide", &mut s.auto_hide);
     take(&obj, "hidden", &mut s.hidden);
     s.size = s.size.clamp(MIN_SIZE, MAX_SIZE);
     s
@@ -106,7 +102,7 @@ mod tests {
     #[test]
     fn save_then_load_round_trips() {
         let h = home("roundtrip");
-        let s = Settings { corner: Corner::Tl, size: 96, auto_hide: true, hidden: true, ..Settings::default() };
+        let s = Settings { corner: Corner::Tl, size: 96, hidden: true, ..Settings::default() };
         save(&h, &s).unwrap();
         assert_eq!(load(&h), s);
     }
@@ -136,9 +132,16 @@ mod tests {
         let s = load(&h);
         assert_eq!(s.corner, Corner::Tl);
         assert_eq!(s.size, 96);
-        assert!(s.auto_hide);
         assert_eq!(s.mascot, "ember");
         assert_eq!(s.animation, Animation::Gentle);
+    }
+
+    #[test]
+    fn old_file_with_auto_hide_still_loads_other_fields() {
+        let h = home("autohide");
+        std::fs::create_dir_all(h.join(".claude-mascot")).unwrap();
+        std::fs::write(h.join(".claude-mascot/settings.json"), r#"{"corner":"tl","autoHide":true}"#).unwrap();
+        assert_eq!(load(&h), Settings { corner: Corner::Tl, ..Settings::default() });
     }
 
     #[test]

@@ -45,6 +45,7 @@ fn mascot_install(app: tauri::AppHandle) -> Result<(), String> {
     let home = home(&app)?;
     let token = token::load_or_create_token(&home).map_err(|e| e.to_string())?;
     let result = installer::install(&home, &token, server::DEFAULT_PORT).map(|_| ()).map_err(install_error_text);
+    if result.is_ok() { let _ = app.emit("mascot-connected", true); }
     refresh_tray(&app);
     result
 }
@@ -53,6 +54,7 @@ fn mascot_install(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn mascot_uninstall(app: tauri::AppHandle) -> Result<(), String> {
     let result = installer::uninstall(&home(&app)?).map_err(install_error_text);
+    if result.is_ok() { let _ = app.emit("mascot-connected", false); }
     refresh_tray(&app);
     result
 }
@@ -106,7 +108,7 @@ fn start_event_bridge(app: &tauri::AppHandle) {
 
 /// Margin between the overlay window and the screen edges, in logical pixels.
 const CORNER_MARGIN: f64 = 16.0;
-/// Hover checks 4×/s; while the mascot is hidden, only a cheap settings check once a second.
+/// Hover checks 4×/s; while the mascot is hidden, only a cheap flag check once a second.
 const HOVER_POLL: std::time::Duration = std::time::Duration::from_millis(250);
 const HIDDEN_POLL: std::time::Duration = std::time::Duration::from_millis(1000);
 /// Re-read the window geometry at least this often (it can move to another display).
@@ -122,6 +124,17 @@ const CORNERS: [(&str, &str, Corner); 4] = [
 ];
 
 struct AppSettings(Mutex<Settings>);
+
+/// Whether the overlay is currently showing the mascot (it reports this via `set_shown`).
+/// While it isn't, the hover watch only idles.
+struct Shown(std::sync::atomic::AtomicBool);
+
+const CONNECTED_NOTICE: &str = "Connected! I'll pop up when you start Claude Code.";
+
+#[tauri::command]
+fn set_shown(app: AppHandle, shown: bool) {
+    app.state::<Shown>().0.store(shown, std::sync::atomic::Ordering::Relaxed);
+}
 
 fn current_settings(app: &AppHandle) -> Settings {
     app.state::<AppSettings>().0.lock().unwrap().clone()
@@ -193,13 +206,12 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let size_refs: Vec<&dyn IsMenuItem<Wry>> = sizes.iter().map(|i| i as &dyn IsMenuItem<Wry>).collect();
     let corner = Submenu::with_items(app, "Corner", true, &corner_refs)?;
     let size = Submenu::with_items(app, "Size", true, &size_refs)?;
-    let auto_hide = CheckMenuItem::with_id(app, "auto-hide", "Hide while asleep", true, s.auto_hide, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Claude Puppet", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     Menu::with_items(app, &[
         &settings, &PredefinedMenuItem::separator(app)?,
         &status, &connect, &PredefinedMenuItem::separator(app)?,
-        &hide, &corner, &size, &auto_hide, &PredefinedMenuItem::separator(app)?,
+        &hide, &corner, &size, &PredefinedMenuItem::separator(app)?,
         &quit,
     ])
 }
@@ -256,9 +268,11 @@ fn open_settings(app: &AppHandle) {
         .build();
     match built {
         Ok(w) => {
+            let _ = app.emit("mascot-settings-open", true);
             let app2 = app.clone();
             w.on_window_event(move |e| {
                 if let tauri::WindowEvent::Destroyed = e {
+                    let _ = app2.emit("mascot-settings-open", false);
                     #[cfg(target_os = "macos")]
                     let _ = app2.set_activation_policy(tauri::ActivationPolicy::Accessory);
                 }
@@ -276,7 +290,6 @@ fn open_settings(app: &AppHandle) {
 struct SettingsPatch {
     corner: Option<Corner>,
     size: Option<u32>,
-    auto_hide: Option<bool>,
     hidden: Option<bool>,
     mascot: Option<String>,
     animation: Option<settings::Animation>,
@@ -287,7 +300,6 @@ fn set_settings(app: AppHandle, patch: SettingsPatch) -> Settings {
     update_settings(&app, |s| {
         if let Some(v) = patch.corner { s.corner = v; }
         if let Some(v) = patch.size { s.size = v.clamp(settings::MIN_SIZE, settings::MAX_SIZE); }
-        if let Some(v) = patch.auto_hide { s.auto_hide = v; }
         if let Some(v) = patch.hidden { s.hidden = v; }
         if let Some(v) = patch.mascot { s.mascot = v; }
         if let Some(v) = patch.animation { s.animation = v; }
@@ -309,7 +321,7 @@ fn refresh_tray(app: &AppHandle) {
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "connect" => match mascot_install(app.clone()) {
-            Ok(()) => notice(app, "Connected! Start a new Claude Code session to see me react."),
+            Ok(()) => notice(app, CONNECTED_NOTICE),
             Err(e) => notice(app, e),
         },
         "disconnect" => match mascot_uninstall(app.clone()) {
@@ -317,7 +329,6 @@ fn on_menu(app: &AppHandle, id: &str) {
             Err(e) => notice(app, e),
         },
         "toggle-hidden" => update_settings(app, |s| s.hidden = !s.hidden),
-        "auto-hide" => update_settings(app, |s| s.auto_hide = !s.auto_hide),
         "quit" => app.exit(0),
         "settings" => open_settings(app),
         other => {
@@ -346,7 +357,8 @@ fn spawn_hover_watch(app: AppHandle) {
             std::thread::sleep(delay);
             let Some(w) = app.get_webview_window("main") else { continue };
             let s = current_settings(&app);
-            if s.hidden && !was_inside {
+            let hidden = !app.state::<Shown>().0.load(std::sync::atomic::Ordering::Relaxed);
+            if hidden && !was_inside {
                 delay = HIDDEN_POLL; // nothing to hover while hidden
                 continue;
             }
@@ -363,7 +375,7 @@ fn spawn_hover_watch(app: AppHandle) {
             }
             let Some((_, _, rect, scale, _)) = cached else { continue };
             let Ok(c) = app.cursor_position() else { continue };
-            let inside = !s.hidden && rect.contains(c.x, c.y);
+            let inside = !hidden && rect.contains(c.x, c.y);
             delay = layout::hover_delay(layout::distance_to(&rect, c.x, c.y), scale);
             if inside != was_inside {
                 let _ = w.set_ignore_cursor_events(!inside);
@@ -383,10 +395,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
         .manage(BridgeError(Mutex::new(None)))
+        .manage(Shown(std::sync::atomic::AtomicBool::new(false)))
         .invoke_handler(tauri::generate_handler![
             bridge_error, mascot_install, mascot_uninstall, mascot_status, get_settings,
             power::low_power, show_context_menu,
-            set_settings, quit_app
+            set_settings, set_shown, quit_app
         ])
         .setup(|app| {
             // No Dock icon and no app switcher entry: the mascot is an accessory overlay.
