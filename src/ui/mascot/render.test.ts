@@ -13,8 +13,8 @@ const bodyTop = (px: ReturnType<typeof mascotPixels>) =>
   Math.min(...px.filter((p) => p.color === EMBER.pal.y).map((p) => p.y));
 
 describe("mascot definitions", () => {
-  test("ships Ember, Mochi and Bolt in that order", () => {
-    expect(MASCOTS.map((m) => m.id)).toEqual(["ember", "mochi", "bolt"]);
+  test("ships the mascots in picker order", () => {
+    expect(MASCOTS.map((m) => m.id)).toEqual(["ember", "mochi", "bolt", "boo", "inky", "sprout"]);
   });
 
   test.each(MASCOTS.map((m) => [m.id, m] as const))("%s map is 16×16 and uses only palette letters", (_id, m) => {
@@ -87,5 +87,49 @@ describe("mascotPixels", () => {
 
   test("Bolt's glowing eyes have no white highlight", () => {
     expect(mascotPixels(BOLT, "idle", 0).some((p) => p.color === "#ffffff")).toBe(false);
+  });
+});
+
+describe("signature details", () => {
+  const without = (id: string) => ({ ...getMascot(id), effects: undefined });
+  const count = (d: ReturnType<typeof getMascot>, mood: Mood, f = 0) => mascotPixels(d, mood, f).length;
+  const SHADOW = "rgba(110,110,130,.35)";
+
+  test("Boo has no ground shadow", () => {
+    expect(mascotPixels(getMascot("boo"), "idle", 0).some((p) => p.color === SHADOW)).toBe(false);
+    expect(ember("idle", 0).some((p) => p.color === SHADOW)).toBe(true);
+  });
+
+  test("Boo fades while asleep", () => {
+    const faded = mascotPixels(getMascot("boo"), "sleeping", 0).filter((p) => p.color.startsWith("rgba("));
+    expect(faded.some((p) => Number(p.color.slice(0, -1).split(",")[3]) < 1)).toBe(true);
+    expect(mascotPixels(getMascot("boo"), "idle", 0).some((p) => p.color.startsWith("rgba("))).toBe(false);
+  });
+
+  test("Boo says boo on error", () => {
+    expect(count(getMascot("boo"), "error")).toBeGreaterThan(count(without("boo"), "error"));
+  });
+
+  test("Inky draws extra pixels on error", () => {
+    expect(count(getMascot("inky"), "error")).toBeGreaterThan(count(without("inky"), "error"));
+  });
+
+  test("Inky's tentacles tap while working", () => {
+    const tips = (f: number) => mascotPixels(getMascot("inky"), "working", f).filter((p) => p.y >= 7 + 14 - 1 && p.y <= 7 + 15).map((p) => `${p.x},${p.y}`).sort().join(" ");
+    expect(tips(0)).not.toBe(tips(1));
+  });
+
+  test("Sprout opens a flower when done", () => {
+    expect(count(getMascot("sprout"), "done")).toBeGreaterThan(count(without("sprout"), "done"));
+    const petals = (mood: Mood) => mascotPixels(getMascot("sprout"), mood, 0).some((p) => p.color === getMascot("sprout").pal.f);
+    expect(petals("done")).toBe(true);
+    expect(petals("idle")).toBe(false);
+  });
+
+  test("Sprout's leaf droops while thinking and folds while asleep", () => {
+    const leaf = (mood: Mood) => mascotPixels(getMascot("sprout"), mood, 0)
+      .filter((p) => p.color === getMascot("sprout").pal.L).map((p) => `${p.x},${p.y}`).sort().join(" ");
+    expect(leaf("thinking")).not.toBe(leaf("idle"));
+    expect(leaf("sleeping")).not.toBe(leaf("idle"));
   });
 });

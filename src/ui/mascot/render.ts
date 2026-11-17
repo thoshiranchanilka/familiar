@@ -43,18 +43,21 @@ export function mascotPixels(def: MascotDef, mood: Mood, f: number): Pixel[] {
   if (mood === "sleeping") dy = (f % 24) < 12 ? 1 : 0;
   if (mood === "greeting") dy = [0, -1, -2, -1, 0, 0][f % 6];
   if (mood === "error") dx = [0, 1, 0, -1][f % 4];
+  const bob = def.bob?.[mood];
+  if (bob?.length) dy = bob[f % bob.length];
   const bx = OX + dx;
   const by = OY + dy;
 
   const sw = dy < -1 ? 8 : 10;
-  px(OX + 8 - sw / 2, OY + 15, SHADOW, sw, 1);
+  if (def.shadow !== false) px(OX + 8 - sw / 2, OY + 15, SHADOW, sw, 1);
+  const faded = mood === "sleeping" && def.sleepAlpha !== undefined;
 
   def.map.forEach((row, j) => [...row].forEach((k, i) => {
     if (k === ".") return;
     let color = def.pal[k];
     if (k === def.blinkLetter && mood === "working" && f % 2) color = "#ffe2c4";
     if (k === def.blinkLetter && mood === "sleeping") color = "#5a4a40";
-    px(bx + i, by + j, color);
+    px(bx + i, by + j, faded ? withAlpha(color, def.sleepAlpha!) : color);
   }));
 
   // eyes
@@ -119,5 +122,12 @@ export function mascotPixels(def: MascotDef, mood: Mood, f: number): Pixel[] {
   }
   if (mood === "greeting" && f % 6 < 3) { sparkle(3, 8, true); sparkle(24, 6, false); }
   if (mood === "error") { px(OX + 15, OY + 1, RED, 1, 3); px(OX + 15, OY + 5, RED); }
+  def.effects?.(mood, f, { px, bx, by, ox: OX, oy: OY });
   return out;
+}
+
+/** "#rrggbb" → "rgba(r,g,b,a)" */
+function withAlpha(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
