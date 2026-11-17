@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { initialState, reduce } from "./reducer";
+import { initialState, nextDeadline, reduce } from "./reducer";
 import type { MascotEvent, MascotState } from "./types";
 
 const code = (event: MascotEvent["event"], ts: number, sessionId = "A", extra: Partial<MascotEvent> = {}): MascotEvent =>
@@ -108,5 +108,36 @@ describe("mood reducer", () => {
     const s = run(initialState(0), code("prompt", 0), code("session_end", 5000), tick(10_000));
     expect(s.sessions).toEqual({});
     expect(s.mood).toBe("idle");
+  });
+});
+
+describe("nextDeadline", () => {
+  test("a fresh prompt next changes when thinking starts", () => {
+    const s = run(initialState(0), code("prompt", 0));
+    expect(nextDeadline(s, 1)).toBe(15_000);
+  });
+
+  test("after stop, the next change is when done expires", () => {
+    const s = run(initialState(0), code("prompt", 0), code("stop", 16_000));
+    expect(nextDeadline(s, 16_001)).toBe(18_000);
+  });
+
+  test("idle with nothing pending waits for sleep", () => {
+    expect(nextDeadline(initialState(0), 1)).toBe(300_000);
+  });
+
+  test("sleeping with nothing pending has no deadline", () => {
+    const s = reduce(initialState(0), tick(300_000));
+    expect(nextDeadline(s, 300_001)).toBeUndefined();
+  });
+
+  test("a deferred mood change wakes when the anti-flicker hold ends", () => {
+    const s = run(initialState(0), code("error", 1000), code("prompt", 1300));
+    expect(nextDeadline(s, 1301)).toBe(1800);
+  });
+
+  test("desktop activity next changes when thinking starts", () => {
+    const s = run(initialState(0), desk("activity_start", 0));
+    expect(nextDeadline(s, 1)).toBe(20_000);
   });
 });

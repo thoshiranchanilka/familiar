@@ -97,6 +97,23 @@ function applyEvent(s: MascotState, e: MascotEvent): MascotState {
   return next;
 }
 
+/**
+ * The earliest future time the displayed mood could change without a new event,
+ * so the UI can sleep until then instead of polling. `undefined` = nothing pending.
+ */
+export function nextDeadline(s: MascotState, now: number): number | undefined {
+  const candidates: number[] = [s.greetingUntil, s.doneUntil, s.errorUntil];
+  if (targetMood(s, now) !== s.mood) candidates.push(s.since + MIN_MOOD_MS);
+  for (const x of Object.values(s.sessions)) {
+    if (!x.working) continue;
+    candidates.push(x.startedAt + THINKING_AFTER_CODE_MS, x.lastEventAt + SESSION_STALE_MS);
+  }
+  if (s.desktopActive) candidates.push(s.desktopStartedAt + THINKING_AFTER_DESKTOP_MS);
+  if (s.mood !== "sleeping") candidates.push(s.lastActivityAt + SLEEP_AFTER_MS);
+  const future = candidates.filter((t) => t > now);
+  return future.length ? Math.min(...future) : undefined;
+}
+
 export function reduce(state: MascotState, input: ReducerInput): MascotState {
   const now = "tick" in input ? input.tick : input.ts;
   const s = "tick" in input ? state : applyEvent(state, input);

@@ -2,7 +2,7 @@
 // the hover usage panel, and short notices.
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { initialState, reduce } from "../mood/reducer";
+import { initialState, nextDeadline, reduce } from "../mood/reducer";
 import type { MascotEvent, MascotState, Mood } from "../mood/types";
 import { formatUsage } from "./usagePanel";
 import { createMascot } from "./mascot/mascot";
@@ -93,6 +93,16 @@ function showNotice(text: string, ms = NOTICE_MS) {
   noticeText = text;
   noticeUntil = Date.now() + ms;
   render();
+  setTimeout(render, ms + 5); // clear it when it expires
+}
+
+// One timer, set to the next moment the mood could change; nothing polls.
+let timer: ReturnType<typeof setTimeout> | undefined;
+function schedule() {
+  clearTimeout(timer);
+  const now = Date.now();
+  const at = nextDeadline(state, now);
+  if (at !== undefined) timer = setTimeout(() => apply({ tick: Date.now() }), at - now + 5);
 }
 
 function apply(input: MascotEvent | { tick: number }) {
@@ -100,6 +110,7 @@ function apply(input: MascotEvent | { tick: number }) {
   state = reduce(state, input);
   if (state.mood === "greeting" && before !== "greeting") ember.popIn();
   render();
+  schedule();
 }
 
 // First run: until Claude Code is connected, clicking Ember connects it.
@@ -126,5 +137,5 @@ listen<boolean>("mascot-hover", (e) => { hovering = e.payload; render(); });
 listen<string>("mascot-notice", (e) => showNotice(e.payload));
 invoke<string | null>("bridge_error").then((m) => { if (m) { serverError = m; render(); } });
 invoke<Settings>("get_settings").then((s) => { settings = s; render(); });
-setInterval(() => apply({ tick: Date.now() }), 250);
+schedule();
 render();
