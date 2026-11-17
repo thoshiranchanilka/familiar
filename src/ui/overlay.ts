@@ -84,6 +84,7 @@ function render() {
   stage.classList.toggle("gone", settings.hidden || asleepHidden);
   mascot.style.width = mascot.style.height = `${settings.size}px`;
   ember.setMood(state.mood);
+  ember.setVisible(!(settings.hidden || asleepHidden));
   notice.textContent = serverError || (noticeUntil > now ? noticeText : "") || LABELS[state.mood];
   panel.hidden = !hovering;
   if (hovering) renderPanel();
