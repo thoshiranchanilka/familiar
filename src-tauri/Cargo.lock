@@ -1037,7 +1037,7 @@ dependencies = [
 
 [[package]]
 name = "familiar"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "objc2",
  "objc2-app-kit",
