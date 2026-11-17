@@ -2,6 +2,7 @@ pub mod normalize;
 pub mod server;
 pub mod token;
 pub mod installer;
+pub mod desktop_monitor;
 
 use tauri::{Emitter, Manager, PhysicalPosition};
 
@@ -62,6 +63,7 @@ fn start_event_bridge(app: &tauri::AppHandle) {
         }
     };
     let (tx, rx) = std::sync::mpsc::channel();
+    desktop_monitor::spawn(tx.clone());
     match server::start(token, server::DEFAULT_PORT, tx) {
         Ok(handle) => {
             app.manage(handle); // keep it alive for the app's lifetime
