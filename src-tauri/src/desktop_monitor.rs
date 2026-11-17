@@ -1,5 +1,6 @@
 //! Watches Claude Desktop (launch, focus, quit) and guesses when it is
-//! generating a reply from its processes' CPU and network activity.
+//! generating a reply from its processes' CPU use. (Network sampling via
+//! `nettop` was removed: it cost over a full CPU core continuously.)
 
 use crate::normalize::MascotEvent;
 
@@ -7,7 +8,6 @@ use crate::normalize::MascotEvent;
 #[derive(Debug, Clone, Copy)]
 pub struct ActivitySample {
     pub cpu_pct: f32,
-    pub net_bytes_per_s: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -18,7 +18,6 @@ pub enum ActivityEdge {
 
 /// Tunables; calibrated against real replies in docs/desktop-calibration.md.
 pub const CPU_ACTIVE_PCT: f32 = 6.0;
-pub const NET_ACTIVE_BYTES_PER_S: u64 = 20_000;
 pub const START_AFTER_MS: i64 = 1_500;
 pub const STOP_AFTER_MS: i64 = 2_000;
 
@@ -33,7 +32,7 @@ pub struct Classifier {
 
 impl Classifier {
     pub fn push(&mut self, s: ActivitySample, now_ms: i64) -> Option<ActivityEdge> {
-        let busy = s.cpu_pct >= CPU_ACTIVE_PCT || s.net_bytes_per_s >= NET_ACTIVE_BYTES_PER_S;
+        let busy = s.cpu_pct >= CPU_ACTIVE_PCT;
         if busy == self.active {
             self.streak_since = None;
             return None;
@@ -77,49 +76,10 @@ fn claude_is_frontmost() -> bool {
     false
 }
 
-/// Samples Claude's network bytes per second into a shared value. `nettop`
-/// block-buffers when piped, so it runs as repeated two-sample, one-second
-/// runs (cumulative block, then a one-second delta block) that flush on exit.
-fn spawn_net_sampler(latest: std::sync::Arc<std::sync::atomic::AtomicU64>, claude_running: std::sync::Arc<std::sync::atomic::AtomicBool>) {
-    use std::sync::atomic::Ordering;
-    std::thread::spawn(move || loop {
-        // No Claude Desktop, no sampling: nettop lists every socket on the system.
-        if !claude_running.load(Ordering::Relaxed) {
-            latest.store(0, Ordering::Relaxed);
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            continue;
-        }
-        let out = std::process::Command::new("/usr/bin/nettop")
-            .args(["-P", "-d", "-x", "-L", "2", "-s", "1", "-J", "bytes_in,bytes_out"])
-            .stderr(std::process::Stdio::null())
-            .output();
-        let bytes = out.ok().and_then(|o| {
-            let mut parser = NettopParser::default();
-            let mut last = None;
-            for line in String::from_utf8_lossy(&o.stdout).lines() {
-                last = parser.feed(line).or(last);
-            }
-            parser.finish().or(last)
-        });
-        match bytes {
-            Some(b) => latest.store(b, Ordering::Relaxed),
-            None => {
-                latest.store(0, Ordering::Relaxed);
-                std::thread::sleep(std::time::Duration::from_secs(5));
-            }
-        }
-    });
-}
-
 /// Watches Claude Desktop and sends `source: "desktop"` events. If Claude is
 /// already running when the mascot starts, no launch greeting is sent.
 pub fn spawn(sink: std::sync::mpsc::Sender<MascotEvent>) {
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
-
-    let net = std::sync::Arc::new(AtomicU64::new(0));
-    let claude_running = std::sync::Arc::new(AtomicBool::new(false));
-    spawn_net_sampler(net.clone(), claude_running.clone());
 
     std::thread::spawn(move || {
         let mut sys = System::new();
@@ -144,7 +104,6 @@ pub fn spawn(sink: std::sync::mpsc::Sender<MascotEvent>) {
             }));
             known = scan.pids.iter().map(|p| Pid::from_u32(*p)).collect();
             let (running, cpu) = (scan.running, scan.cpu);
-            claude_running.store(running, Ordering::Relaxed);
 
             let ok = match (was_running, running) {
                 (Some(false), true) => send("app_launch"),
@@ -166,14 +125,14 @@ pub fn spawn(sink: std::sync::mpsc::Sender<MascotEvent>) {
             was_front = front;
 
             if running {
-                let sample = ActivitySample { cpu_pct: cpu, net_bytes_per_s: net.load(Ordering::Relaxed) };
+                let sample = ActivitySample { cpu_pct: cpu };
                 match classifier.push(sample, now_ms()) {
                     Some(ActivityEdge::Start) => { send("activity_start"); }
                     Some(ActivityEdge::Stop) => { send("activity_stop"); }
                     None => {}
                 }
                 if std::env::var_os("PUPPET_CALIBRATE").is_some() {
-                    eprintln!("[calibrate] cpu={cpu:.1} net={}", sample.net_bytes_per_s);
+                    eprintln!("[calibrate] cpu={cpu:.1}");
                 }
             }
             std::thread::sleep(SAMPLE_EVERY);
@@ -202,39 +161,6 @@ pub fn scan_claude<'a>(procs: impl Iterator<Item = (u32, &'a str, f32)>) -> Clau
     s
 }
 
-/// Parses `nettop -P -d -x -J bytes_in,bytes_out` output. Each block starts with
-/// a `,bytes_in,bytes_out,` header; the first block is cumulative and skipped.
-#[derive(Debug, Default)]
-pub struct NettopParser {
-    blocks_seen: u32,
-    current: u64,
-}
-
-impl NettopParser {
-    /// Returns the previous block's Claude bytes (in + out) when a new block starts.
-    pub fn feed(&mut self, line: &str) -> Option<u64> {
-        if line.starts_with(",bytes_in") {
-            self.blocks_seen += 1;
-            let done = std::mem::take(&mut self.current);
-            return (self.blocks_seen >= 3).then_some(done);
-        }
-        let mut cols = line.split(',');
-        let proc_name = cols.next()?.rsplit_once('.')?.0;
-        if proc_name != "Claude" && !proc_name.starts_with("Claude Helper") {
-            return None;
-        }
-        let bytes: u64 = cols.take(2).filter_map(|c| c.trim().parse::<u64>().ok()).sum();
-        self.current += bytes;
-        None
-    }
-
-    /// At end of output: the final block's bytes, if it was a delta block.
-    pub fn finish(&mut self) -> Option<u64> {
-        let last = std::mem::take(&mut self.current);
-        (self.blocks_seen >= 2).then_some(last)
-    }
-}
-
 #[cfg(test)]
 mod scan_tests {
     use super::*;
@@ -261,65 +187,11 @@ mod scan_tests {
 }
 
 #[cfg(test)]
-mod parser_tests {
-    use super::*;
-
-    fn run(lines: &[&str]) -> Vec<u64> {
-        let mut p = NettopParser::default();
-        lines.iter().filter_map(|l| p.feed(l)).collect()
-    }
-
-    #[test]
-    fn skips_cumulative_first_block_and_sums_claude_processes() {
-        let out = run(&[
-            ",bytes_in,bytes_out,",
-            "Claude Helper.75749,569497,405267,",
-            ",bytes_in,bytes_out,",
-            "Claude Helper.75749,5755,4830,",
-            "Safari.123,99999,99999,",
-            ",bytes_in,bytes_out,",
-            "Claude.75741,5203,2639,",
-            "Claude Helper.75749,3607,1074,",
-            ",bytes_in,bytes_out,",
-        ]);
-        assert_eq!(out, vec![5755 + 4830, 5203 + 2639 + 3607 + 1074]);
-    }
-
-    #[test]
-    fn finish_returns_the_last_delta_block_of_a_two_sample_run() {
-        let mut p = NettopParser::default();
-        for l in [",bytes_in,bytes_out,", "Claude.1,900000,900000,", ",bytes_in,bytes_out,", "Claude.1,300,200,"] {
-            assert_eq!(p.feed(l), None);
-        }
-        assert_eq!(p.finish(), Some(500));
-    }
-
-    #[test]
-    fn finish_without_a_delta_block_is_none() {
-        let mut p = NettopParser::default();
-        p.feed(",bytes_in,bytes_out,");
-        p.feed("Claude.1,900000,900000,");
-        assert_eq!(p.finish(), None);
-    }
-
-    #[test]
-    fn ignores_our_own_app_and_garbage_lines() {
-        let out = run(&[
-            ",bytes_in,bytes_out,", "x", ",bytes_in,bytes_out,",
-            "Claude Puppet.1,100,100,", "Claude Helper.2,notanumber,5,", "",
-            ",bytes_in,bytes_out,",
-        ]);
-        assert_eq!(out, vec![5]);
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
-    const BUSY: ActivitySample = ActivitySample { cpu_pct: 20.0, net_bytes_per_s: 0 };
-    const NET_BUSY: ActivitySample = ActivitySample { cpu_pct: 0.0, net_bytes_per_s: 50_000 };
-    const QUIET: ActivitySample = ActivitySample { cpu_pct: 1.0, net_bytes_per_s: 5_000 };
+    const BUSY: ActivitySample = ActivitySample { cpu_pct: 20.0 };
+    const QUIET: ActivitySample = ActivitySample { cpu_pct: 1.0 };
 
     /// Feeds samples every 500 ms starting at `t0`, returning the edges with their times.
     fn feed(c: &mut Classifier, t0: i64, samples: &[ActivitySample]) -> Vec<(i64, ActivityEdge)> {
@@ -337,12 +209,6 @@ mod tests {
     fn sustained_activity_starts_after_1_5_s() {
         let mut c = Classifier::default();
         assert_eq!(feed(&mut c, 0, &[BUSY; 4]), vec![(1500, ActivityEdge::Start)]);
-    }
-
-    #[test]
-    fn network_alone_counts_as_activity() {
-        let mut c = Classifier::default();
-        assert_eq!(feed(&mut c, 0, &[NET_BUSY; 4]), vec![(1500, ActivityEdge::Start)]);
     }
 
     #[test]
