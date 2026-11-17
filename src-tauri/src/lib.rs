@@ -1,6 +1,7 @@
 pub mod normalize;
 pub mod server;
 pub mod token;
+pub mod installer;
 
 use tauri::{Emitter, Manager, PhysicalPosition};
 
@@ -15,6 +16,38 @@ fn report_bridge_error(app: &tauri::AppHandle, msg: String) {
 #[tauri::command]
 fn bridge_error(state: tauri::State<BridgeError>) -> Option<String> {
     state.0.lock().unwrap().clone()
+}
+
+fn home(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path().home_dir().map_err(|e| e.to_string())
+}
+
+fn install_error_text(e: installer::InstallError) -> String {
+    match e {
+        installer::InstallError::InvalidSettings(m) => format!(
+            "Your Claude Code settings file couldn't be read, so nothing was changed. {m}"
+        ),
+        installer::InstallError::Io(m) => format!("Couldn't update Claude Code settings: {m}"),
+    }
+}
+
+/// Connects Claude Code: adds the mascot's hooks and status line.
+#[tauri::command]
+fn mascot_install(app: tauri::AppHandle) -> Result<(), String> {
+    let home = home(&app)?;
+    let token = token::load_or_create_token(&home).map_err(|e| e.to_string())?;
+    installer::install(&home, &token, server::DEFAULT_PORT).map(|_| ()).map_err(install_error_text)
+}
+
+/// Disconnects Claude Code and restores the previous settings.
+#[tauri::command]
+fn mascot_uninstall(app: tauri::AppHandle) -> Result<(), String> {
+    installer::uninstall(&home(&app)?).map_err(install_error_text)
+}
+
+#[tauri::command]
+fn mascot_status(app: tauri::AppHandle) -> Result<bool, String> {
+    Ok(installer::is_installed(&home(&app)?))
 }
 
 /// Starts the event server and forwards every event to the overlay as `mascot-event`.
@@ -74,7 +107,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(BridgeError(std::sync::Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![bridge_error])
+        .invoke_handler(tauri::generate_handler![bridge_error, mascot_install, mascot_uninstall, mascot_status])
         .setup(|app| {
             // No Dock icon and no app switcher entry: the mascot is an accessory overlay.
             #[cfg(target_os = "macos")]

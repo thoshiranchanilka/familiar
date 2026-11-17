@@ -1,0 +1,366 @@
+//! Connects Claude Code to the mascot by merging HTTP hooks and a status-line
+//! command into `~/.claude/settings.json`, with a backup and a clean uninstall.
+
+use crate::server::DEFAULT_PORT;
+use crate::token::mascot_dir;
+use serde_json::{json, Map, Value};
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+
+pub const HOOK_EVENTS: [&str; 9] = [
+    "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop",
+    "StopFailure", "Notification", "SessionEnd", "PostModelSwitch",
+];
+
+#[derive(Debug, PartialEq)]
+pub enum InstallError {
+    InvalidSettings(String),
+    Io(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct InstallReport {
+    pub hooks_added: usize,
+    pub chained_status_line: bool,
+}
+
+const STATUSLINE_SCRIPT: &str = include_str!("../../scripts/statusline.sh");
+const STATUS_REFRESH_SECS: u64 = 30;
+
+fn io(e: std::io::Error) -> InstallError {
+    InstallError::Io(e.to_string())
+}
+
+fn settings_path(home: &Path) -> PathBuf {
+    home.join(".claude").join("settings.json")
+}
+
+fn hook_url(port: u16) -> String {
+    format!("http://127.0.0.1:{port}/hook")
+}
+
+fn script_path(home: &Path) -> PathBuf {
+    mascot_dir(home).join("statusline.sh")
+}
+
+/// Raw bytes of settings.json, or None when the file does not exist.
+fn read_raw(home: &Path) -> Result<Option<Vec<u8>>, InstallError> {
+    match std::fs::read(settings_path(home)) {
+        Ok(b) => Ok(Some(b)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io(e)),
+    }
+}
+
+/// Parses settings bytes; blank files count as `{}`, anything but an object is an error.
+fn parse(bytes: &[u8]) -> Result<Map<String, Value>, InstallError> {
+    if bytes.iter().all(u8::is_ascii_whitespace) {
+        return Ok(Map::new());
+    }
+    match serde_json::from_slice::<Value>(bytes) {
+        Ok(Value::Object(m)) => Ok(m),
+        Ok(_) => Err(InstallError::InvalidSettings("settings.json is not a JSON object".into())),
+        Err(e) => Err(InstallError::InvalidSettings(format!("settings.json is not valid JSON: {e}"))),
+    }
+}
+
+/// Writes via a temp file and rename so a crash never leaves a half-written file.
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), InstallError> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(io)?;
+    }
+    let tmp = path.with_extension("json.puppet-tmp");
+    std::fs::write(&tmp, bytes).map_err(io)?;
+    std::fs::rename(&tmp, path).map_err(io)
+}
+
+fn pretty(m: &Map<String, Value>) -> Vec<u8> {
+    let mut s = serde_json::to_string_pretty(m).unwrap_or_else(|_| "{}".into());
+    s.push('\n');
+    s.into_bytes()
+}
+
+fn is_our_group(group: &Value, url: &str) -> bool {
+    group["hooks"].as_array().is_some_and(|hs| hs.iter().any(|h| h["url"] == url))
+}
+
+fn is_our_status_line(v: &Value) -> bool {
+    v["command"].as_str().is_some_and(|c| c.ends_with(".claude-mascot/statusline.sh"))
+}
+
+pub fn install(home: &Path, token: &str, port: u16) -> Result<InstallReport, InstallError> {
+    let raw = read_raw(home)?;
+    let mut settings = parse(raw.as_deref().unwrap_or_default())?;
+    let dir = mascot_dir(home);
+    std::fs::create_dir_all(&dir).map_err(io)?;
+
+    // Back up the pre-install file once; a re-install keeps the first backup.
+    let backup = dir.join("settings.backup.json");
+    let absent = dir.join("settings.absent");
+    if !is_installed(home) {
+        match &raw {
+            Some(b) => {
+                std::fs::write(&backup, b).map_err(io)?;
+                let _ = std::fs::remove_file(&absent);
+            }
+            None => {
+                std::fs::write(&absent, b"").map_err(io)?;
+                let _ = std::fs::remove_file(&backup);
+            }
+        }
+    }
+
+    // Hooks: one HTTP group per event, updated in place on re-install.
+    let url = hook_url(port);
+    let ours = json!({ "hooks": [{
+        "type": "http", "url": url, "timeout": 2,
+        "headers": { "Authorization": format!("Bearer {token}") }
+    }]});
+    let hooks = settings.entry("hooks").or_insert_with(|| json!({}));
+    if !hooks.is_object() {
+        return Err(InstallError::InvalidSettings("\"hooks\" is not an object".into()));
+    }
+    let mut hooks_added = 0;
+    for ev in HOOK_EVENTS {
+        let list = hooks.as_object_mut().unwrap().entry(ev).or_insert_with(|| json!([]));
+        let Some(arr) = list.as_array_mut() else {
+            return Err(InstallError::InvalidSettings(format!("hooks.{ev} is not a list")));
+        };
+        match arr.iter_mut().find(|g| is_our_group(g, &url)) {
+            Some(g) => *g = ours.clone(),
+            None => {
+                arr.push(ours.clone());
+                hooks_added += 1;
+            }
+        }
+    }
+
+    // Status line: chain the user's previous command through our script.
+    let mut chained_status_line = false;
+    if let Some(prev) = settings.get("statusLine").filter(|v| !is_our_status_line(v)) {
+        if let Some(cmd) = prev["command"].as_str() {
+            std::fs::write(dir.join("prev-statusline"), cmd).map_err(io)?;
+            chained_status_line = true;
+        }
+    }
+    let script = script_path(home);
+    std::fs::write(&script, STATUSLINE_SCRIPT).map_err(io)?;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).map_err(io)?;
+    settings.insert("statusLine".into(), json!({
+        "type": "command",
+        "command": script.to_string_lossy(),
+        "refreshInterval": STATUS_REFRESH_SECS
+    }));
+
+    write_atomic(&settings_path(home), &pretty(&settings))?;
+    Ok(InstallReport { hooks_added, chained_status_line })
+}
+
+pub fn uninstall(home: &Path) -> Result<(), InstallError> {
+    let dir = mascot_dir(home);
+    let backup_bytes = std::fs::read(dir.join("settings.backup.json")).ok();
+    let was_absent = dir.join("settings.absent").exists();
+    let original = parse(backup_bytes.as_deref().unwrap_or_default()).unwrap_or_default();
+
+    if let Some(raw) = read_raw(home)? {
+        let mut settings = parse(&raw)?;
+        let url = hook_url(DEFAULT_PORT);
+
+        // Remove our hook groups, then any lists or objects that became empty.
+        if let Some(hooks) = settings.get_mut("hooks").and_then(Value::as_object_mut) {
+            for list in hooks.values_mut() {
+                if let Some(arr) = list.as_array_mut() {
+                    arr.retain(|g| !is_our_group(g, &url));
+                }
+            }
+            hooks.retain(|_, v| !v.as_array().is_some_and(Vec::is_empty));
+        }
+        if settings.get("hooks").and_then(Value::as_object).is_some_and(Map::is_empty) {
+            settings.remove("hooks");
+        }
+        if settings.get("statusLine").is_some_and(is_our_status_line) {
+            match original.get("statusLine") {
+                Some(prev) => settings.insert("statusLine".into(), prev.clone()),
+                None => settings.remove("statusLine"),
+            };
+        }
+
+        // Nothing else changed since install: put back the exact original bytes.
+        let path = settings_path(home);
+        if settings == original {
+            match (&backup_bytes, was_absent) {
+                (_, true) => std::fs::remove_file(&path).map_err(io)?,
+                (Some(b), false) => write_atomic(&path, b)?,
+                (None, false) => write_atomic(&path, &pretty(&settings))?,
+            }
+        } else {
+            write_atomic(&path, &pretty(&settings))?;
+        }
+    }
+
+    for f in ["settings.backup.json", "settings.absent", "prev-statusline", "statusline.sh"] {
+        let _ = std::fs::remove_file(dir.join(f));
+    }
+    Ok(())
+}
+
+pub fn is_installed(home: &Path) -> bool {
+    let Ok(Some(raw)) = read_raw(home) else { return false };
+    let Ok(settings) = parse(&raw) else { return false };
+    let url = hook_url(DEFAULT_PORT);
+    settings.get("hooks").and_then(Value::as_object).is_some_and(|h| {
+        h.values().filter_map(Value::as_array).flatten().any(|g| is_our_group(g, &url))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+    use std::path::PathBuf;
+
+    const PORT: u16 = 47653;
+    const URL: &str = "http://127.0.0.1:47653/hook";
+
+    fn home(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("puppet-inst-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join(".claude")).unwrap();
+        d
+    }
+    fn settings_path(h: &Path) -> PathBuf { h.join(".claude/settings.json") }
+    fn write_settings(h: &Path, s: &str) { std::fs::write(settings_path(h), s).unwrap(); }
+    fn read_json(h: &Path) -> Value { serde_json::from_slice(&std::fs::read(settings_path(h)).unwrap()).unwrap() }
+    fn our_groups(v: &Value, ev: &str) -> usize {
+        v["hooks"][ev].as_array().map_or(0, |a| a.iter().filter(|g| g["hooks"][0]["url"] == URL).count())
+    }
+
+    #[test]
+    fn fresh_install_creates_all_hooks_and_status_line() {
+        let h = home("fresh");
+        let r = install(&h, "tok", PORT).unwrap();
+        assert_eq!(r.hooks_added, 9);
+        let v = read_json(&h);
+        for ev in HOOK_EVENTS {
+            assert_eq!(our_groups(&v, ev), 1, "{ev}");
+        }
+        let hook = &v["hooks"]["Stop"][0]["hooks"][0];
+        assert_eq!(hook["type"], "http");
+        assert_eq!(hook["headers"]["Authorization"], "Bearer tok");
+        assert_eq!(v["statusLine"]["type"], "command");
+        assert!(v["statusLine"]["command"].as_str().unwrap().ends_with(".claude-mascot/statusline.sh"));
+        assert!(is_installed(&h));
+        let script = h.join(".claude-mascot/statusline.sh");
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(script).unwrap().permissions().mode() & 0o111, 0o111);
+    }
+
+    #[test]
+    fn keeps_existing_hooks_and_settings() {
+        let h = home("keep");
+        write_settings(&h, r#"{"model":"opus","hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}]}}"#);
+        install(&h, "tok", PORT).unwrap();
+        let v = read_json(&h);
+        assert_eq!(v["model"], "opus");
+        assert_eq!(v["hooks"]["Stop"][0]["hooks"][0]["command"], "say done");
+        assert_eq!(our_groups(&v, "Stop"), 1);
+    }
+
+    #[test]
+    fn installing_twice_does_not_duplicate_and_updates_token() {
+        let h = home("twice");
+        install(&h, "old", PORT).unwrap();
+        let r = install(&h, "new", PORT).unwrap();
+        assert_eq!(r.hooks_added, 0);
+        let v = read_json(&h);
+        assert_eq!(our_groups(&v, "PreToolUse"), 1);
+        assert_eq!(v["hooks"]["PreToolUse"][0]["hooks"][0]["headers"]["Authorization"], "Bearer new");
+    }
+
+    #[test]
+    fn chains_previous_status_line() {
+        let h = home("chain");
+        write_settings(&h, r#"{"statusLine":{"type":"command","command":"echo hi"}}"#);
+        let r = install(&h, "tok", PORT).unwrap();
+        assert!(r.chained_status_line);
+        assert_eq!(std::fs::read_to_string(h.join(".claude-mascot/prev-statusline")).unwrap(), "echo hi");
+    }
+
+    #[test]
+    fn invalid_json_is_rejected_and_left_untouched() {
+        let h = home("invalid");
+        write_settings(&h, "{ not json");
+        assert!(matches!(install(&h, "tok", PORT), Err(InstallError::InvalidSettings(_))));
+        assert_eq!(std::fs::read_to_string(settings_path(&h)).unwrap(), "{ not json");
+    }
+
+    #[test]
+    fn non_object_settings_are_rejected() {
+        let h = home("array");
+        write_settings(&h, "[1,2]");
+        assert!(matches!(install(&h, "tok", PORT), Err(InstallError::InvalidSettings(_))));
+    }
+
+    #[test]
+    fn empty_settings_file_is_treated_as_empty_object() {
+        let h = home("empty");
+        write_settings(&h, "");
+        install(&h, "tok", PORT).unwrap();
+        uninstall(&h).unwrap();
+        assert_eq!(std::fs::read_to_string(settings_path(&h)).unwrap(), "");
+    }
+
+    #[test]
+    fn uninstall_restores_original_bytes() {
+        let h = home("restore");
+        let original = "{\n    \"model\": \"opus\",\n    \"statusLine\": {\"type\":\"command\",\"command\":\"echo hi\"}\n}\n";
+        write_settings(&h, original);
+        install(&h, "tok", PORT).unwrap();
+        assert!(h.join(".claude-mascot/settings.backup.json").exists());
+        uninstall(&h).unwrap();
+        assert_eq!(std::fs::read_to_string(settings_path(&h)).unwrap(), original);
+        assert!(!is_installed(&h));
+    }
+
+    #[test]
+    fn uninstall_removes_settings_file_that_did_not_exist() {
+        let h = home("absent");
+        install(&h, "tok", PORT).unwrap();
+        uninstall(&h).unwrap();
+        assert!(!settings_path(&h).exists());
+    }
+
+    #[test]
+    fn uninstall_keeps_changes_made_after_install() {
+        let h = home("later");
+        write_settings(&h, r#"{"model":"opus"}"#);
+        install(&h, "tok", PORT).unwrap();
+        let mut v = read_json(&h);
+        v["theme"] = json!("dark");
+        write_settings(&h, &serde_json::to_string(&v).unwrap());
+        uninstall(&h).unwrap();
+        let after = read_json(&h);
+        assert_eq!(after, json!({"model":"opus","theme":"dark"}));
+    }
+
+    #[test]
+    fn status_line_script_never_fails_and_runs_previous_command() {
+        let h = home("script");
+        install(&h, "tok", PORT).unwrap();
+        std::fs::write(h.join(".claude-mascot/prev-statusline"), "cat >/dev/null; echo prev-output").unwrap();
+        let out = std::process::Command::new("sh")
+            .arg(h.join(".claude-mascot/statusline.sh"))
+            .env("HOME", &h)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut c| {
+                use std::io::Write;
+                c.stdin.take().unwrap().write_all(br#"{"model":{"display_name":"X"}}"#)?;
+                c.wait_with_output()
+            })
+            .unwrap();
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "prev-output");
+    }
+}
