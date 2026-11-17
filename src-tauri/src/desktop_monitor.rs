@@ -85,6 +85,11 @@ fn claude_app_state() -> (bool, bool) {
     (false, false)
 }
 
+/// Whether Claude Desktop is running right now.
+pub fn claude_running() -> bool {
+    claude_app_state().0
+}
+
 /// Watches Claude Desktop and sends `source: "desktop"` events. If Claude is
 /// already running when the mascot starts, no launch greeting is sent.
 /// While Claude is closed this costs one AppKit query every 2 s; while it runs,

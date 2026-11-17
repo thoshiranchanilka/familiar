@@ -45,13 +45,17 @@ fn install_error_text(e: installer::InstallError) -> String {
 fn mascot_install(app: tauri::AppHandle) -> Result<(), String> {
     let home = home(&app)?;
     let token = token::load_or_create_token(&home).map_err(|e| e.to_string())?;
-    installer::install(&home, &token, server::DEFAULT_PORT).map(|_| ()).map_err(install_error_text)
+    let result = installer::install(&home, &token, server::DEFAULT_PORT).map(|_| ()).map_err(install_error_text);
+    refresh_tray(&app);
+    result
 }
 
 /// Disconnects Claude Code and restores the previous settings.
 #[tauri::command]
 fn mascot_uninstall(app: tauri::AppHandle) -> Result<(), String> {
-    installer::uninstall(&home(&app)?).map_err(install_error_text)
+    let result = installer::uninstall(&home(&app)?).map_err(install_error_text);
+    refresh_tray(&app);
+    result
 }
 
 #[tauri::command]
@@ -216,12 +220,83 @@ fn show_context_menu(app: AppHandle, window: tauri::Window) -> Result<(), String
     window.popup_menu(&menu).map_err(|e| e.to_string())
 }
 
-/// Opens the settings window, or focuses it if it is already open.
+/// Brings this (normally background) app to the front so its window isn't left behind others.
+fn bring_to_front() {
+    #[cfg(target_os = "macos")]
+    if let Some(mtm) = objc2::MainThreadMarker::new() {
+        #[allow(deprecated)]
+        objc2_app_kit::NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
+    }
+}
+
+/// Opens the settings window, or focuses it if it is already open. While it is open
+/// the app shows in the Dock so the window can take focus; it goes back to being a
+/// background accessory when the window closes.
 fn open_settings(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.unminimize();
         let _ = w.show();
+        let _ = app.run_on_main_thread(bring_to_front);
         let _ = w.set_focus();
+        return;
     }
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    let built = tauri::WebviewWindowBuilder::new(app, "settings", tauri::WebviewUrl::App("settings.html".into()))
+        .title("Claude Puppet Settings")
+        .inner_size(560.0, 820.0)
+        .resizable(false)
+        .center()
+        .build();
+    match built {
+        Ok(w) => {
+            let app2 = app.clone();
+            w.on_window_event(move |e| {
+                if let tauri::WindowEvent::Destroyed = e {
+                    #[cfg(target_os = "macos")]
+                    let _ = app2.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                }
+            });
+            let _ = app.run_on_main_thread(bring_to_front);
+            let _ = w.set_focus();
+        }
+        Err(e) => notice(app, format!("Couldn't open Settings: {e}")),
+    }
+}
+
+/// Fields the settings window may change; anything left out stays as it is.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsPatch {
+    corner: Option<Corner>,
+    size: Option<u32>,
+    auto_hide: Option<bool>,
+    hidden: Option<bool>,
+    mascot: Option<String>,
+    animation: Option<settings::Animation>,
+}
+
+#[tauri::command]
+fn set_settings(app: AppHandle, patch: SettingsPatch) -> Settings {
+    update_settings(&app, |s| {
+        if let Some(v) = patch.corner { s.corner = v; }
+        if let Some(v) = patch.size { s.size = v.clamp(settings::MIN_SIZE, settings::MAX_SIZE); }
+        if let Some(v) = patch.auto_hide { s.auto_hide = v; }
+        if let Some(v) = patch.hidden { s.hidden = v; }
+        if let Some(v) = patch.mascot { s.mascot = v; }
+        if let Some(v) = patch.animation { s.animation = v; }
+    });
+    current_settings(&app)
+}
+
+#[tauri::command]
+fn desktop_status() -> bool {
+    desktop_monitor::claude_running()
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
 }
 
 fn refresh_tray(app: &AppHandle) {
@@ -292,16 +367,15 @@ fn spawn_hover_watch(app: AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            // Reopening the app brings the mascot back and opens Settings.
-            update_settings(app, |s| s.hidden = false);
-            open_settings(app);
+            reopen(app);
         }))
         .plugin(tauri_plugin_opener::init())
         .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
         .manage(BridgeError(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             bridge_error, mascot_install, mascot_uninstall, mascot_status, get_settings,
-            power::low_power, show_context_menu
+            power::low_power, show_context_menu,
+            set_settings, desktop_status, quit_app
         ])
         .setup(|app| {
             // No Dock icon and no app switcher entry: the mascot is an accessory overlay.
@@ -327,6 +401,20 @@ pub fn run() {
             start_event_bridge(&handle);
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Opening the app from Finder, Spotlight or the Dock while it runs sends a
+            // "reopen" event (no second process): bring the mascot back and open Settings.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                reopen(app);
+            }
+        });
+}
+
+/// Reopening the app shows the mascot again and opens Settings.
+fn reopen(app: &AppHandle) {
+    update_settings(app, |s| s.hidden = false);
+    open_settings(app);
 }

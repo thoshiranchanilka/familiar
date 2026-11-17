@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claude Puppet Settings</title>
+    <link rel="stylesheet" href="/src/settings/settings.css" />
+    <script type="module" src="/src/settings/settings.ts" defer></script>
+  </head>
+  <body>
+    <header class="hero">
+      <canvas id="hero-mascot" aria-hidden="true"></canvas>
+      <div>
+        <h1>Claude Puppet</h1>
+        <p class="muted">A small companion that reacts to Claude while you work.</p>
+      </div>
+    </header>
+
+    <main>
+      <section>
+        <h2>Mascot</h2>
+        <div class="cards" id="mascots" role="radiogroup" aria-label="Mascot"></div>
+      </section>
+
+      <section>
+        <h2>Size</h2>
+        <div class="row">
+          <input id="size" type="range" min="64" max="192" step="4" aria-label="Mascot size" />
+          <output id="size-value" class="pill"></output>
+        </div>
+      </section>
+
+      <section>
+        <h2>Position</h2>
+        <div class="corners" id="corners" role="radiogroup" aria-label="Corner"></div>
+        <label class="check"><input id="auto-hide" type="checkbox" /> Hide while asleep</label>
+      </section>
+
+      <section>
+        <h2>Animation</h2>
+        <div class="segmented" id="animation" role="radiogroup" aria-label="Animation"></div>
+        <p class="muted small" id="animation-hint">Gentle animates only while Claude is busy, so it barely uses power.</p>
+        <p class="note small" id="animation-note"></p>
+      </section>
+
+      <section>
+        <h2>Connections</h2>
+        <div class="conn">
+          <div>
+            <b>Claude Code</b>
+            <span class="pill" id="code-status"></span>
+          </div>
+          <button id="code-toggle" type="button"></button>
+        </div>
+        <div class="conn">
+          <div>
+            <b>Claude Desktop</b>
+            <span class="pill" id="desktop-status"></span>
+          </div>
+          <span class="muted small">Detected automatically</span>
+        </div>
+        <p class="error small" id="error" role="alert"></p>
+      </section>
+    </main>
+
+    <footer>
+      <span class="muted small" id="version"></span>
+      <button id="quit" type="button" class="quiet">Quit Claude Puppet</button>
+    </footer>
+  </body>
+</html>
