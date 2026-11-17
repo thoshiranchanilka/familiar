@@ -100,6 +100,28 @@ fn is_our_status_line(v: &Value) -> bool {
     v["command"].as_str().is_some_and(|c| c.ends_with(".claude-mascot/statusline.sh"))
 }
 
+/// Brings an existing install's scripts up to date with this version (they live outside the
+/// app bundle). Does nothing when Claude Code isn't connected, and never touches settings.json.
+/// Returns whether anything was rewritten.
+pub fn refresh_scripts(home: &Path) -> std::io::Result<bool> {
+    let dir = mascot_dir(home);
+    if !dir.join("hook.sh").exists() {
+        return Ok(false);
+    }
+    let mut changed = false;
+    for (name, body) in [("hook.sh", HOOK_SCRIPT), ("statusline.sh", STATUSLINE_SCRIPT)] {
+        let path = dir.join(name);
+        let current = std::fs::read_to_string(&path).ok();
+        let mode = std::fs::metadata(&path).map(|m| m.permissions().mode() & 0o777).ok();
+        if current.as_deref() != Some(body) || mode != Some(0o755) {
+            std::fs::write(&path, body)?;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
 pub fn install(home: &Path, token: &str, port: u16) -> Result<InstallReport, InstallError> {
     let raw = read_raw(home)?;
     let mut settings = parse(raw.as_deref().unwrap_or_default())?;
@@ -379,7 +401,7 @@ mod tests {
         let out = std::process::Command::new("sh")
             .arg(h.join(".claude-mascot/hook.sh"))
             .env("HOME", h)
-            .env("CLAUDE_PUPPET_PORT", port.to_string())
+            .env("FAMILIAR_PORT", port.to_string())
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -659,7 +681,49 @@ mod tests {
         install(&h, "tok", PORT).unwrap();
         let out = run_script(&h, br#"{"model":{"id":"claude-x","display_name":"Opus 5.5"},"cwd":"/p"}"#);
         assert!(out.status.success());
-        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "🔥 Ember · Opus 5.5");
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "Familiar · Opus 5.5");
+    }
+
+    #[test]
+    fn statusline_shows_selected_mascot_name() {
+        let h = home("script-name");
+        install(&h, "tok", PORT).unwrap();
+        std::fs::write(h.join(".claude-mascot/settings.json"), "{\n  \"corner\": \"br\",\n  \"mascot\": \"mochi\"\n}").unwrap();
+        let out = run_script(&h, br#"{"model":{"display_name":"Opus 5.5"}}"#);
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "Mochi · Opus 5.5");
+        let out = run_script(&h, br#"{"cwd":"/p"}"#);
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "Mochi");
+        std::fs::write(h.join(".claude-mascot/settings.json"), r#"{"mascot":"nobody"}"#).unwrap();
+        let out = run_script(&h, br#"{"model":{"display_name":"Opus 5.5"}}"#);
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "Familiar · Opus 5.5");
+    }
+
+    #[test]
+    fn refresh_scripts_rewrites_outdated_scripts() {
+        let h = home("refresh");
+        install(&h, "tok", PORT).unwrap();
+        let hook = h.join(".claude-mascot/hook.sh");
+        std::fs::write(&hook, "#!/bin/sh\n# old\n").unwrap();
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let before = std::fs::read(settings_path(&h)).unwrap();
+        assert!(refresh_scripts(&h).unwrap());
+        assert_eq!(std::fs::read_to_string(&hook).unwrap(), HOOK_SCRIPT);
+        assert_eq!(std::fs::metadata(&hook).unwrap().permissions().mode() & 0o777, 0o755);
+        assert_eq!(std::fs::read(settings_path(&h)).unwrap(), before);
+    }
+
+    #[test]
+    fn refresh_scripts_noop_when_not_installed() {
+        let h = home("refresh-none");
+        assert!(!refresh_scripts(&h).unwrap());
+        assert!(!h.join(".claude-mascot/statusline.sh").exists());
+    }
+
+    #[test]
+    fn refresh_scripts_noop_when_current() {
+        let h = home("refresh-current");
+        install(&h, "tok", PORT).unwrap();
+        assert!(!refresh_scripts(&h).unwrap());
     }
 
     fn run_script(h: &Path, input: &[u8]) -> std::process::Output {

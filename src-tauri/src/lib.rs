@@ -77,6 +77,10 @@ fn start_event_bridge(app: &tauri::AppHandle) {
     };
     // Earlier versions used HTTP hooks, which print errors in Claude Code whenever the
     // app is closed and receive full tool payloads. Switch them to the script hook.
+    // Scripts live outside the app bundle, so an update brings them up to date here.
+    if let Err(e) = installer::refresh_scripts(&home) {
+        report_bridge_error(app, format!("Could not update the Claude Code scripts: {e}"));
+    }
     if installer::needs_migration(&home) {
         if let Err(e) = installer::install(&home, &token, server::DEFAULT_PORT) {
             report_bridge_error(app, install_error_text(e));
@@ -206,7 +210,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let size_refs: Vec<&dyn IsMenuItem<Wry>> = sizes.iter().map(|i| i as &dyn IsMenuItem<Wry>).collect();
     let corner = Submenu::with_items(app, "Corner", true, &corner_refs)?;
     let size = Submenu::with_items(app, "Size", true, &size_refs)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Claude Puppet", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Familiar", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     Menu::with_items(app, &[
         &settings, &PredefinedMenuItem::separator(app)?,
@@ -226,7 +230,7 @@ fn build_context_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     } else {
         MenuItem::with_id(app, "connect", "Connect Claude Code", true, None::<&str>)?
     };
-    let quit = MenuItem::with_id(app, "quit", "Quit Claude Puppet", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Familiar", true, None::<&str>)?;
     Menu::with_items(app, &[
         &settings, &hide, &connect, &PredefinedMenuItem::separator(app)?, &quit,
     ])
@@ -261,7 +265,7 @@ fn open_settings(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
     let built = tauri::WebviewWindowBuilder::new(app, "settings", tauri::WebviewUrl::App("settings.html".into()))
-        .title("Claude Puppet Settings")
+        .title("Familiar Settings")
         .inner_size(560.0, 820.0)
         .resizable(false)
         .center()
@@ -445,7 +449,7 @@ pub fn run() {
 
             TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().expect("app icon").clone())
-                .tooltip("Claude Puppet")
+                .tooltip("Familiar")
                 .menu(&build_menu(&handle)?)
                 .show_menu_on_left_click(true)
                 .build(app)?;

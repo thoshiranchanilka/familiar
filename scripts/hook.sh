@@ -1,10 +1,10 @@
 #!/bin/sh
-# Claude Puppet hook: tells the mascot app which Claude Code event just happened.
+# Familiar hook: tells the Familiar app which Claude Code event just happened.
 # It forwards only the event name, session id and model — never tool inputs or
 # outputs — and never fails or prints anything, so Claude Code is unaffected when
 # the app isn't running.
 dir="$HOME/.claude-mascot"
-port="${CLAUDE_PUPPET_PORT:-47653}"
+port="${FAMILIAR_PORT:-47653}"
 
 # Read only the first 4 KB of the event (the fields we need come first in it), then
 # drain the rest so Claude Code never sees a broken pipe, however large the payload.

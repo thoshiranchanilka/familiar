@@ -1,4 +1,4 @@
-use claude_puppet_lib::server::{start, ServerError};
+use familiar_lib::server::{start, ServerError};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc::{channel, Receiver};
@@ -25,7 +25,7 @@ fn post(addr: SocketAddr, path: &str, auth: Option<&str>, body: &str) -> u16 {
     resp.split_whitespace().nth(1).and_then(|c| c.parse().ok()).unwrap_or(0)
 }
 
-fn setup() -> (claude_puppet_lib::server::ServerHandle, Receiver<claude_puppet_lib::normalize::MascotEvent>) {
+fn setup() -> (familiar_lib::server::ServerHandle, Receiver<familiar_lib::normalize::MascotEvent>) {
     let (tx, rx) = channel();
     let h = start(TOKEN.into(), free_port(), tx).expect("server starts");
     (h, rx)

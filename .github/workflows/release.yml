@@ -37,7 +37,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Claude Puppet ${{ github.ref_name }}"
+          releaseName: "Familiar ${{ github.ref_name }}"
           releaseBody: "Download the .dmg below. First launch: see Install in the README."
           releaseDraft: true
           args: --bundles app,dmg

@@ -1,11 +1,11 @@
 #!/bin/bash
-# Measures Claude Puppet's idle CPU and energy use and fails above the targets.
+# Measures Familiar's idle CPU and energy use and fails above the targets.
 #
-# Usage: scripts/power-check.sh [path/to/Claude Puppet.app]
+# Usage: scripts/power-check.sh [path/to/Familiar.app]
 #   POWER_CHECK_HOME=/tmp/x scripts/power-check.sh   # launch with a throwaway home folder,
 #                                                   # so your real Claude Code settings are untouched
 #
-# If Claude Puppet is already running, that copy is measured and left running.
+# If Familiar is already running, that copy is measured and left running.
 # Otherwise the given (or freshly built) app is launched, measured, and quit.
 # WebKit helper processes are not children of the app, so they are matched by
 # starting within 15 s of the app process.
@@ -17,25 +17,25 @@ SETTLE_SECS=15
 SAMPLES=11     # first sample is a baseline and is skipped
 INTERVAL=3
 
-APP=${1:-"$(cd "$(dirname "$0")/.." && pwd)/src-tauri/target/release/bundle/macos/Claude Puppet.app"}
+APP=${1:-"$(cd "$(dirname "$0")/.." && pwd)/src-tauri/target/release/bundle/macos/Familiar.app"}
 launched=""
 
-pid=$(pgrep -x claude-puppet | head -n 1)
+pid=$(pgrep -x familiar | head -n 1)
 if [ -z "$pid" ]; then
-  [ -d "$APP" ] || { echo "No running Claude Puppet and no app at: $APP" >&2; exit 2; }
+  [ -d "$APP" ] || { echo "No running Familiar and no app at: $APP" >&2; exit 2; }
   if [ -n "${POWER_CHECK_HOME:-}" ]; then
     mkdir -p "$POWER_CHECK_HOME"
-    HOME="$POWER_CHECK_HOME" "$APP/Contents/MacOS/claude-puppet" >/dev/null 2>&1 &
+    HOME="$POWER_CHECK_HOME" "$APP/Contents/MacOS/familiar" >/dev/null 2>&1 &
   else
     open -n "$APP"
   fi
-  for _ in $(seq 1 30); do pid=$(pgrep -x claude-puppet | head -n 1); [ -n "$pid" ] && break; sleep 1; done
-  [ -n "$pid" ] || { echo "Claude Puppet did not start" >&2; exit 2; }
+  for _ in $(seq 1 30); do pid=$(pgrep -x familiar | head -n 1); [ -n "$pid" ] && break; sleep 1; done
+  [ -n "$pid" ] || { echo "Familiar did not start" >&2; exit 2; }
   launched=$pid
-  echo "Launched Claude Puppet (pid $pid); settling for ${SETTLE_SECS}s…"
+  echo "Launched Familiar (pid $pid); settling for ${SETTLE_SECS}s…"
   sleep "$SETTLE_SECS"
 else
-  echo "Measuring the running Claude Puppet (pid $pid)."
+  echo "Measuring the running Familiar (pid $pid)."
 fi
 
 start_epoch() { date -j -f "%a %b %d %T %Y" "$(ps -o lstart= -p "$1" | sed 's/  */ /g')" +%s 2>/dev/null; }

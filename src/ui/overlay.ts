@@ -54,7 +54,7 @@ panel.className = "bubble panel";
 panel.hidden = true;
 const mascot = document.createElement("canvas");
 mascot.className = "mascot";
-mascot.setAttribute("aria-label", "Ember, the Claude Puppet mascot");
+mascot.setAttribute("aria-label", "Familiar mascot");
 stage.append(notice, panel, mascot);
 const ember = createMascot(mascot);
 
