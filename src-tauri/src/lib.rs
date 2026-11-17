@@ -308,6 +308,37 @@ fn set_settings(app: AppHandle, patch: SettingsPatch) -> Settings {
 }
 
 #[tauri::command]
+fn get_open_at_login(app: AppHandle) -> bool {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().unwrap_or(false)
+}
+
+#[tauri::command]
+fn set_open_at_login(app: AppHandle, on: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let l = app.autolaunch();
+    if on { l.enable() } else { l.disable() }.map_err(|e| e.to_string())
+}
+
+/// Turns Open at login on the first time Familiar runs (the user can switch it off in
+/// Settings). Skipped in development builds and when `FAMILIAR_NO_LOGIN` is set (tests and
+/// the power check), so trying the app out never registers a login item.
+fn first_run_login(app: &AppHandle) {
+    if cfg!(debug_assertions) || std::env::var_os("FAMILIAR_NO_LOGIN").is_some() {
+        return;
+    }
+    let state = app.state::<AppSettings>();
+    let mut s = state.0.lock().unwrap();
+    if settings::first_run_login(&mut s) {
+        use tauri_plugin_autostart::ManagerExt;
+        let _ = app.autolaunch().enable();
+        if let Ok(h) = home(app) {
+            let _ = settings::save(&h, &s);
+        }
+    }
+}
+
+#[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
 }
@@ -393,13 +424,14 @@ pub fn run() {
             reopen(app);
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
         .manage(BridgeError(Mutex::new(None)))
         .manage(Shown(std::sync::atomic::AtomicBool::new(false)))
         .invoke_handler(tauri::generate_handler![
             bridge_error, mascot_install, mascot_uninstall, mascot_status, get_settings,
             power::low_power, show_context_menu,
-            set_settings, set_shown, quit_app
+            set_settings, set_shown, get_open_at_login, set_open_at_login, quit_app
         ])
         .setup(|app| {
             // No Dock icon and no app switcher entry: the mascot is an accessory overlay.
@@ -409,6 +441,7 @@ pub fn run() {
             let handle = app.handle().clone();
             let loaded = home(&handle).map(|h| settings::load(&h)).unwrap_or_default();
             app.manage(AppSettings(Mutex::new(loaded)));
+            first_run_login(&handle);
 
             TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().expect("app icon").clone())

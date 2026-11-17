@@ -75,6 +75,17 @@ size.addEventListener("input", () => {
 size.addEventListener("change", () => save({ size: Number(size.value) }));
 
 
+$<HTMLInputElement>("open-at-login").addEventListener("change", async (e) => {
+  const box = e.target as HTMLInputElement;
+  try {
+    await invoke("set_open_at_login", { on: box.checked });
+    $("error").textContent = "";
+  } catch (err) {
+    box.checked = !box.checked;
+    $("error").textContent = `Couldn't change Open at login: ${err}`;
+  }
+});
+
 $("code-toggle").addEventListener("click", async () => {
   $("error").textContent = "";
   try {
@@ -108,6 +119,7 @@ async function refreshStatus() {
   connected = await invoke<boolean>("mascot_status").catch(() => false);
   $("code-status").textContent = statusText({ connected });
   $("code-toggle").textContent = connected ? "Disconnect" : "Connect";
+  $<HTMLInputElement>("open-at-login").checked = await invoke<boolean>("get_open_at_login").catch(() => false);
 }
 
 async function init() {

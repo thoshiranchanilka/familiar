@@ -29,6 +29,8 @@ pub struct Settings {
     /// mascot size in logical px
     pub size: u32,
     pub hidden: bool,
+    /// Set once Open at login has been turned on for the first time, so it only happens once.
+    pub login_set_up: bool,
 }
 
 pub const MIN_SIZE: u32 = 64;
@@ -42,6 +44,7 @@ impl Default for Settings {
             animation: Animation::Gentle,
             size: 128,
             hidden: false,
+            login_set_up: false,
         }
     }
 }
@@ -70,8 +73,15 @@ pub fn load(home: &Path) -> Settings {
     take(&obj, "animation", &mut s.animation);
     take(&obj, "size", &mut s.size);
     take(&obj, "hidden", &mut s.hidden);
+    take(&obj, "loginSetUp", &mut s.login_set_up);
     s.size = s.size.clamp(MIN_SIZE, MAX_SIZE);
     s
+}
+
+/// True the first time it is called for these settings (Open at login should be turned on
+/// now); it records that, so later runs leave the user's choice alone.
+pub fn first_run_login(s: &mut Settings) -> bool {
+    !std::mem::replace(&mut s.login_set_up, true)
 }
 
 pub fn save(home: &Path, s: &Settings) -> std::io::Result<()> {
@@ -142,6 +152,33 @@ mod tests {
         std::fs::create_dir_all(h.join(".claude-mascot")).unwrap();
         std::fs::write(h.join(".claude-mascot/settings.json"), r#"{"corner":"tl","autoHide":true}"#).unwrap();
         assert_eq!(load(&h), Settings { corner: Corner::Tl, ..Settings::default() });
+    }
+
+    #[test]
+    fn first_run_enables_login_once() {
+        let mut s = Settings::default();
+        assert!(first_run_login(&mut s));
+        assert!(!first_run_login(&mut s));
+    }
+
+    #[test]
+    fn existing_file_without_marker_counts_as_first_run() {
+        let h = home("nomarker");
+        std::fs::create_dir_all(h.join(".claude-mascot")).unwrap();
+        std::fs::write(h.join(".claude-mascot/settings.json"), r#"{"corner":"bl","mascot":"bolt"}"#).unwrap();
+        let mut s = load(&h);
+        assert!(first_run_login(&mut s));
+        assert_eq!(s.mascot, "bolt");
+    }
+
+    #[test]
+    fn marker_survives_save_and_load() {
+        let h = home("marker");
+        let mut s = Settings::default();
+        first_run_login(&mut s);
+        save(&h, &s).unwrap();
+        let mut again = load(&h);
+        assert!(!first_run_login(&mut again));
     }
 
     #[test]
