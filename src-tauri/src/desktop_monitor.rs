@@ -51,9 +51,10 @@ impl Classifier {
 const CLAUDE_BUNDLE_ID: &str = "com.anthropic.claudefordesktop";
 const CLAUDE_APP_DIR: &str = "/Claude.app/Contents/";
 const CLAUDE_MAIN_EXE: &str = "/Claude.app/Contents/MacOS/Claude";
-const SAMPLE_EVERY: std::time::Duration = std::time::Duration::from_millis(500);
-/// Full process-list scans happen every 8 samples (4 s); other samples refresh only Claude's PIDs.
-const FULL_SCAN_EVERY: u32 = 8;
+const CLOSED_CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
+const RUNNING_SAMPLE_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+/// While Claude runs, rescan every process this often to pick up new helper processes.
+const HELPER_RESCAN_SECS: u64 = 30;
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -62,22 +63,32 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+/// (running, frontmost) for Claude Desktop, straight from AppKit: no process-list scan.
 #[cfg(target_os = "macos")]
-fn claude_is_frontmost() -> bool {
-    use objc2_app_kit::NSWorkspace;
-    let ws = NSWorkspace::sharedWorkspace();
-    ws.frontmostApplication()
-        .and_then(|app| app.bundleIdentifier())
-        .is_some_and(|id| id.to_string() == CLAUDE_BUNDLE_ID)
+fn claude_app_state() -> (bool, bool) {
+    use objc2_app_kit::{NSRunningApplication, NSWorkspace};
+    use objc2_foundation::NSString;
+    objc2::rc::autoreleasepool(|_| {
+        let id = NSString::from_str(CLAUDE_BUNDLE_ID);
+        let running = NSRunningApplication::runningApplicationsWithBundleIdentifier(&id).count() > 0;
+        let front = running
+            && NSWorkspace::sharedWorkspace()
+                .frontmostApplication()
+                .and_then(|app| app.bundleIdentifier())
+                .is_some_and(|b| b.to_string() == CLAUDE_BUNDLE_ID);
+        (running, front)
+    })
 }
 
 #[cfg(not(target_os = "macos"))]
-fn claude_is_frontmost() -> bool {
-    false
+fn claude_app_state() -> (bool, bool) {
+    (false, false)
 }
 
 /// Watches Claude Desktop and sends `source: "desktop"` events. If Claude is
 /// already running when the mascot starts, no launch greeting is sent.
+/// While Claude is closed this costs one AppKit query every 2 s; while it runs,
+/// only Claude's own processes are sampled, once a second.
 pub fn spawn(sink: std::sync::mpsc::Sender<MascotEvent>) {
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
@@ -86,29 +97,20 @@ pub fn spawn(sink: std::sync::mpsc::Sender<MascotEvent>) {
         let mut classifier = Classifier::default();
         let mut was_running: Option<bool> = None;
         let mut was_front = false;
+        let mut known: Vec<Pid> = Vec::new();
+        let mut last_full_scan: Option<std::time::Instant> = None;
+        let refresh = ProcessRefreshKind::nothing().with_cpu().with_exe(sysinfo::UpdateKind::OnlyIfNotSet);
         let send = |event: &'static str| sink.send(MascotEvent::new("desktop", event, now_ms())).is_ok();
 
-        let refresh = ProcessRefreshKind::nothing().with_cpu().with_exe(sysinfo::UpdateKind::OnlyIfNotSet);
-        let mut known: Vec<Pid> = Vec::new();
-        let mut tick: u32 = 0;
         loop {
-            // Full process scan every FULL_SCAN_EVERY ticks; in between, refresh only Claude's processes.
-            if tick % FULL_SCAN_EVERY == 0 {
-                sys.refresh_processes_specifics(ProcessesToUpdate::All, true, refresh);
-            } else if !known.is_empty() {
-                sys.refresh_processes_specifics(ProcessesToUpdate::Some(&known), true, refresh);
-            }
-            tick = tick.wrapping_add(1);
-            let scan = scan_claude(sys.processes().iter().filter_map(|(pid, p)| {
-                Some((pid.as_u32(), p.exe()?.to_str()?, p.cpu_usage()))
-            }));
-            known = scan.pids.iter().map(|p| Pid::from_u32(*p)).collect();
-            let (running, cpu) = (scan.running, scan.cpu);
+            let (running, front) = claude_app_state();
 
             let ok = match (was_running, running) {
                 (Some(false), true) => send("app_launch"),
                 (Some(true), false) => {
                     classifier = Classifier::default();
+                    known.clear();
+                    last_full_scan = None;
                     send("app_quit")
                 }
                 _ => true,
@@ -118,26 +120,51 @@ pub fn spawn(sink: std::sync::mpsc::Sender<MascotEvent>) {
             }
             was_running = Some(running);
 
-            let front = running && claude_is_frontmost();
             if front && !was_front {
                 send("app_focus");
             }
             was_front = front;
 
+            let since_scan = last_full_scan.map_or(u64::MAX, |t| t.elapsed().as_secs());
+            let plan = plan_tick(running, since_scan);
             if running {
-                let sample = ActivitySample { cpu_pct: cpu };
-                match classifier.push(sample, now_ms()) {
+                if plan.full_scan || known.is_empty() {
+                    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, refresh);
+                    last_full_scan = Some(std::time::Instant::now());
+                } else {
+                    sys.refresh_processes_specifics(ProcessesToUpdate::Some(&known), true, refresh);
+                }
+                let scan = scan_claude(sys.processes().iter().filter_map(|(pid, p)| {
+                    Some((pid.as_u32(), p.exe()?.to_str()?, p.cpu_usage()))
+                }));
+                known = scan.pids.iter().map(|p| Pid::from_u32(*p)).collect();
+                match classifier.push(ActivitySample { cpu_pct: scan.cpu }, now_ms()) {
                     Some(ActivityEdge::Start) => { send("activity_start"); }
                     Some(ActivityEdge::Stop) => { send("activity_stop"); }
                     None => {}
                 }
                 if std::env::var_os("PUPPET_CALIBRATE").is_some() {
-                    eprintln!("[calibrate] cpu={cpu:.1}");
+                    eprintln!("[calibrate] cpu={:.1}", scan.cpu);
                 }
             }
-            std::thread::sleep(SAMPLE_EVERY);
+            std::thread::sleep(plan.delay);
         }
     });
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TickPlan {
+    pub delay: std::time::Duration,
+    pub full_scan: bool,
+}
+
+/// How long to sleep after this tick and whether to rescan every process for Claude's helpers.
+pub fn plan_tick(running: bool, secs_since_full_scan: u64) -> TickPlan {
+    if running {
+        TickPlan { delay: RUNNING_SAMPLE_EVERY, full_scan: secs_since_full_scan >= HELPER_RESCAN_SECS }
+    } else {
+        TickPlan { delay: CLOSED_CHECK_EVERY, full_scan: false }
+    }
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -159,6 +186,29 @@ pub fn scan_claude<'a>(procs: impl Iterator<Item = (u32, &'a str, f32)>) -> Clau
     }
     s.pids.sort_unstable();
     s
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn closed_claude_is_checked_every_2_s_without_scanning() {
+        assert_eq!(plan_tick(false, 0), TickPlan { delay: Duration::from_secs(2), full_scan: false });
+        assert_eq!(plan_tick(false, 999), TickPlan { delay: Duration::from_secs(2), full_scan: false });
+    }
+
+    #[test]
+    fn running_claude_is_sampled_every_second() {
+        assert_eq!(plan_tick(true, 0), TickPlan { delay: Duration::from_secs(1), full_scan: false });
+        assert_eq!(plan_tick(true, 29).full_scan, false);
+    }
+
+    #[test]
+    fn running_claude_rescans_for_new_helpers_every_30_s() {
+        assert_eq!(plan_tick(true, 30), TickPlan { delay: Duration::from_secs(1), full_scan: true });
+    }
 }
 
 #[cfg(test)]

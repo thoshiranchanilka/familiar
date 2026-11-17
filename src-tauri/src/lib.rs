@@ -98,6 +98,9 @@ fn start_event_bridge(app: &tauri::AppHandle) {
 
 /// Margin between the overlay window and the screen edges, in logical pixels.
 const CORNER_MARGIN: f64 = 16.0;
+/// Hover checks 4×/s; while the mascot is hidden, only a cheap settings check once a second.
+const HOVER_POLL: std::time::Duration = std::time::Duration::from_millis(250);
+const HIDDEN_POLL: std::time::Duration = std::time::Duration::from_millis(750);
 /// Distance from the window's corner to the mascot; matches `#stage` in overlay.ts.
 const MASCOT_INSET: f64 = 12.0;
 const SIZES: [(&str, &str, u32); 3] = [("size-s", "Small", 96), ("size-m", "Medium", 128), ("size-l", "Large", 176)];
@@ -227,9 +230,13 @@ fn spawn_hover_watch(app: AppHandle) {
     std::thread::spawn(move || {
         let mut was_inside = false;
         loop {
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            std::thread::sleep(HOVER_POLL);
             let Some(w) = app.get_webview_window("main") else { continue };
             let s = current_settings(&app);
+            if s.hidden && !was_inside {
+                std::thread::sleep(HIDDEN_POLL); // nothing to hover while hidden
+                continue;
+            }
             let inside = !s.hidden
                 && match (app.cursor_position(), w.outer_position(), w.outer_size(), w.scale_factor()) {
                     (Ok(c), Ok(p), Ok(sz), Ok(scale)) => {
