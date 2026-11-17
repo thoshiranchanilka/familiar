@@ -14,7 +14,7 @@ export interface Draw {
 }
 
 export interface MascotDef {
-  id: "ember" | "mochi" | "bolt" | "boo" | "inky" | "sprout";
+  id: "ember" | "mochi" | "bolt" | "boo" | "inky" | "sprout" | "lotl" | "hop" | "dot";
   name: string;
   kind: string;
   blurb: string;

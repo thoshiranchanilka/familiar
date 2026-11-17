@@ -14,7 +14,7 @@ const bodyTop = (px: ReturnType<typeof mascotPixels>) =>
 
 describe("mascot definitions", () => {
   test("ships the mascots in picker order", () => {
-    expect(MASCOTS.map((m) => m.id)).toEqual(["ember", "mochi", "bolt", "boo", "inky", "sprout"]);
+    expect(MASCOTS.map((m) => m.id)).toEqual(["ember", "mochi", "bolt", "boo", "inky", "sprout", "lotl", "hop", "dot"]);
   });
 
   test.each(MASCOTS.map((m) => [m.id, m] as const))("%s map is 16×16 and uses only palette letters", (_id, m) => {
@@ -131,5 +131,35 @@ describe("signature details", () => {
       .filter((p) => p.color === getMascot("sprout").pal.L).map((p) => `${p.x},${p.y}`).sort().join(" ");
     expect(leaf("thinking")).not.toBe(leaf("idle"));
     expect(leaf("sleeping")).not.toBe(leaf("idle"));
+  });
+
+  const top = (id: string, mood: Mood, f: number) =>
+    Math.min(...mascotPixels(getMascot(id), mood, f).filter((p) => p.color === getMascot(id).pal.o).map((p) => p.y));
+  const rise = (id: string) => top(id, "idle", 0) - Math.min(...[0, 1, 2, 3, 4, 5, 6, 7].map((f) => top(id, "done", f)));
+
+  test("Hop hops higher than Ember when done", () => {
+    expect(rise("hop")).toBeGreaterThan(rise("ember"));
+  });
+
+  test("Dot draws smoke while working", () => {
+    expect(count(getMascot("dot"), "working")).toBeGreaterThan(count(without("dot"), "working"));
+  });
+
+  test("Dot breathes a tiny flame on error", () => {
+    const flame = (mood: Mood) => mascotPixels(getMascot("dot"), mood, 0).some((p) => p.color === getMascot("dot").pal.F);
+    expect(flame("error")).toBe(true);
+    expect(flame("idle")).toBe(false);
+  });
+
+  test("Lotl blushes when done", () => {
+    const blush = (mood: Mood) => mascotPixels(getMascot("lotl"), mood, 0).some((p) => p.color === getMascot("lotl").pal.b);
+    expect(blush("done")).toBe(true);
+    expect(blush("idle")).toBe(false);
+  });
+
+  test("Lotl's gills wiggle while working", () => {
+    const gills = (f: number) => mascotPixels(getMascot("lotl"), "working", f)
+      .filter((p) => p.color === getMascot("lotl").pal.g).map((p) => `${p.x - (f % 2 ? 0 : 0)},${p.y}`).sort().join(" ");
+    expect(gills(0)).not.toBe(gills(2));
   });
 });

@@ -27,7 +27,9 @@ const cardViews = MASCOTS.map((m) => {
   card.type = "button";
   card.className = "card";
   card.setAttribute("role", "radio");
-  card.innerHTML = `<canvas></canvas><b>${m.name}</b><span>${m.kind}</span>`;
+  card.innerHTML = `<canvas></canvas><b>${m.name}</b>`;
+  card.title = `${m.name}: ${m.kind}. ${m.blurb}`;
+  card.setAttribute("aria-label", `${m.name}, ${m.kind}`);
   card.addEventListener("click", () => save({ mascot: m.id }));
   $("mascots").appendChild(card);
   const view = createMascot(card.querySelector("canvas")!, m);

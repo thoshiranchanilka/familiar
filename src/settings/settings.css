@@ -48,15 +48,14 @@ main { display: grid; gap: 16px; padding: 8px 28px 4px; }
 .note:empty, .error:empty { display: none; }
 .error { color: var(--error); margin: 8px 0 0; }
 
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 .card {
-  display: grid; justify-items: center; gap: 4px; padding: 10px 8px 10px;
+  display: grid; justify-items: center; gap: 2px; padding: 8px 4px;
   background: var(--surface); border: 2px solid var(--line); border-radius: 12px;
   color: inherit; font: inherit; cursor: pointer;
 }
-.card canvas { width: 88px; height: 88px; image-rendering: pixelated; }
+.card canvas { width: 60px; height: 60px; image-rendering: pixelated; }
 .card b { font: 700 14px var(--font-display); }
-.card span { color: var(--muted); font-size: 12px; }
 .card[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); }
 
 .row { display: flex; align-items: center; gap: 12px; }
