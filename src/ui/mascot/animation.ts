@@ -3,9 +3,9 @@ import type { Mood } from "../../mood/types";
 import type { Animation } from "./defs";
 
 const FPS8_MS = 125;
-const IDLE_BLINK_EVERY_MS = 4000;
+const IDLE_BLINK_EVERY_MS = 12_000;
 const BLINK_HOLD_MS = 150;
-const SLEEP_MS = 500;
+const SLEEP_MS = 4000;
 /** frame used when nothing animates: open eyes, Zs visible while asleep */
 const STILL_FRAME = 10;
 /** the idle frame in which the renderer closes the eyes */

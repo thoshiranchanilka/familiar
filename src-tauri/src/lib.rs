@@ -111,7 +111,9 @@ fn start_event_bridge(app: &tauri::AppHandle) {
 const CORNER_MARGIN: f64 = 16.0;
 /// Hover checks 4×/s; while the mascot is hidden, only a cheap settings check once a second.
 const HOVER_POLL: std::time::Duration = std::time::Duration::from_millis(250);
-const HIDDEN_POLL: std::time::Duration = std::time::Duration::from_millis(750);
+const HIDDEN_POLL: std::time::Duration = std::time::Duration::from_millis(1000);
+/// Re-read the window geometry at least this often (it can move to another display).
+const GEOMETRY_REFRESH: std::time::Duration = std::time::Duration::from_secs(10);
 /// Distance from the window's corner to the mascot; matches `#stage` in overlay.ts.
 const MASCOT_INSET: f64 = 12.0;
 const SIZES: [(&str, &str, u32); 3] = [("size-s", "Small", 96), ("size-m", "Medium", 128), ("size-l", "Large", 176)];
@@ -344,23 +346,33 @@ fn on_menu(app: &AppHandle, id: &str) {
 fn spawn_hover_watch(app: AppHandle) {
     std::thread::spawn(move || {
         let mut was_inside = false;
+        // Window geometry only changes with settings (corner, size) or a display change, so it is
+        // cached; each poll then asks only for the cursor position.
+        let mut cached: Option<(settings::Corner, u32, Rect, f64, std::time::Instant)> = None;
+        let mut delay = HOVER_POLL;
         loop {
-            std::thread::sleep(HOVER_POLL);
+            std::thread::sleep(delay);
             let Some(w) = app.get_webview_window("main") else { continue };
             let s = current_settings(&app);
             if s.hidden && !was_inside {
-                std::thread::sleep(HIDDEN_POLL); // nothing to hover while hidden
+                delay = HIDDEN_POLL; // nothing to hover while hidden
                 continue;
             }
-            let inside = !s.hidden
-                && match (app.cursor_position(), w.outer_position(), w.outer_size(), w.scale_factor()) {
-                    (Ok(c), Ok(p), Ok(sz), Ok(scale)) => {
-                        let win = Rect { x: p.x, y: p.y, w: sz.width as i32, h: sz.height as i32 };
-                        let size = (s.size as f64 * scale) as i32;
-                        layout::mascot_rect(s.corner, win, size, (MASCOT_INSET * scale) as i32).contains(c.x, c.y)
-                    }
-                    _ => false,
-                };
+            let stale = cached.as_ref().is_none_or(|(c, size, _, _, at)| {
+                *c != s.corner || *size != s.size || at.elapsed() > GEOMETRY_REFRESH
+            });
+            if stale {
+                if let (Ok(p), Ok(sz), Ok(scale)) = (w.outer_position(), w.outer_size(), w.scale_factor()) {
+                    let win = Rect { x: p.x, y: p.y, w: sz.width as i32, h: sz.height as i32 };
+                    let size = (s.size as f64 * scale) as i32;
+                    let rect = layout::mascot_rect(s.corner, win, size, (MASCOT_INSET * scale) as i32);
+                    cached = Some((s.corner, s.size, rect, scale, std::time::Instant::now()));
+                }
+            }
+            let Some((_, _, rect, scale, _)) = cached else { continue };
+            let Ok(c) = app.cursor_position() else { continue };
+            let inside = !s.hidden && rect.contains(c.x, c.y);
+            delay = layout::hover_delay(layout::distance_to(&rect, c.x, c.y), scale);
             if inside != was_inside {
                 let _ = w.set_ignore_cursor_events(!inside);
                 let _ = app.emit("mascot-hover", inside);

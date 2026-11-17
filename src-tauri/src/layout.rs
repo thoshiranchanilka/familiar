@@ -38,9 +38,43 @@ pub fn mascot_rect(corner: Corner, window: Rect, size: i32, inset: i32) -> Rect 
     Rect { x, y, w: size, h: size }
 }
 
+/// Distance in px from a point to the nearest edge of `r` (0 inside).
+pub fn distance_to(r: &Rect, px: f64, py: f64) -> f64 {
+    let dx = (r.x as f64 - px).max(px - (r.x + r.w) as f64).max(0.0);
+    let dy = (r.y as f64 - py).max(py - (r.y + r.h) as f64).max(0.0);
+    (dx * dx + dy * dy).sqrt()
+}
+
+/// How long the hover watch sleeps: quick near the mascot, slow when the cursor is far away.
+pub fn hover_delay(distance_px: f64, scale: f64) -> std::time::Duration {
+    const NEAR_LOGICAL_PX: f64 = 200.0;
+    if distance_px < NEAR_LOGICAL_PX * scale {
+        std::time::Duration::from_millis(250)
+    } else {
+        std::time::Duration::from_millis(1000)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn distance_is_zero_inside_and_grows_outside() {
+        let r = Rect { x: 100, y: 100, w: 50, h: 50 };
+        assert_eq!(distance_to(&r, 120.0, 120.0), 0.0);
+        assert_eq!(distance_to(&r, 160.0, 120.0), 10.0);
+        assert_eq!(distance_to(&r, 50.0, 50.0), (50.0f64 * 50.0 * 2.0).sqrt());
+    }
+
+    #[test]
+    fn hover_polls_fast_only_near_the_mascot() {
+        // distances are physical px; scale 2 means 200 logical px = 400 physical px
+        assert_eq!(hover_delay(0.0, 2.0), Duration::from_millis(250));
+        assert_eq!(hover_delay(399.0, 2.0), Duration::from_millis(250));
+        assert_eq!(hover_delay(401.0, 2.0), Duration::from_millis(1000));
+    }
 
     const AREA: Rect = Rect { x: 0, y: 50, w: 3000, h: 2000 };
 

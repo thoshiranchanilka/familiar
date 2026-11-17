@@ -2,6 +2,8 @@
 # Measures Claude Puppet's idle CPU and energy use and fails above the targets.
 #
 # Usage: scripts/power-check.sh [path/to/Claude Puppet.app]
+#   POWER_CHECK_HOME=/tmp/x scripts/power-check.sh   # launch with a throwaway home folder,
+#                                                   # so your real Claude Code settings are untouched
 #
 # If Claude Puppet is already running, that copy is measured and left running.
 # Otherwise the given (or freshly built) app is launched, measured, and quit.
@@ -21,7 +23,12 @@ launched=""
 pid=$(pgrep -x claude-puppet | head -n 1)
 if [ -z "$pid" ]; then
   [ -d "$APP" ] || { echo "No running Claude Puppet and no app at: $APP" >&2; exit 2; }
-  open -n "$APP"
+  if [ -n "${POWER_CHECK_HOME:-}" ]; then
+    mkdir -p "$POWER_CHECK_HOME"
+    HOME="$POWER_CHECK_HOME" "$APP/Contents/MacOS/claude-puppet" >/dev/null 2>&1 &
+  else
+    open -n "$APP"
+  fi
   for _ in $(seq 1 30); do pid=$(pgrep -x claude-puppet | head -n 1); [ -n "$pid" ] && break; sleep 1; done
   [ -n "$pid" ] || { echo "Claude Puppet did not start" >&2; exit 2; }
   launched=$pid
