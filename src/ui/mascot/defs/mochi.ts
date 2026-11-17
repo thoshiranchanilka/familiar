@@ -1,0 +1,32 @@
+import type { MascotDef } from "./types";
+
+export const mochi: MascotDef = {
+  id: "mochi",
+  name: "Mochi",
+  kind: "Sleepy cat",
+  blurb: "Soft, a bit lazy, very loyal. Naps the moment you stop typing.",
+  pal: { o: "#3b2a22", c: "#f2a65a", l: "#fde3c0", p: "#f28b8b" },
+  eye: "#2a1d17",
+  glow: false,
+  eyes: { l: 5, r: 9, y: 7 },
+  mouth: { x: 7, y: 10 },
+  soft: "#fde3c0",
+  map: [
+    "................",
+    "..o..........o..",
+    ".opo........opo.",
+    ".occo......occo.",
+    ".occcoooooocccco",
+    ".occcccccccccco.",
+    "occcccccccccccco",
+    "occcccccccccccco",
+    "occcccccccccccco",
+    "occpccccccccpcco",
+    "occcccccccccccco",
+    ".occcllllllccco.",
+    ".occllllllllcco.",
+    ".occllllllllcco.",
+    "..oooooooooooo..",
+    "................",
+  ],
+};

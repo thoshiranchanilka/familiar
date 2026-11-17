@@ -2,7 +2,7 @@
 """Renders Ember's idle face as a 1024x1024 PNG app icon (no dependencies).
 
 Usage: python3 scripts/make-icon.py out.png && npx tauri icon out.png
-Keep MAP and PAL in sync with src/ui/mascot/ember.ts.
+Keep MAP and PAL in sync with src/ui/mascot/defs/ember.ts.
 """
 import struct
 import sys

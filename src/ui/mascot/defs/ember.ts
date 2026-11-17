@@ -1,0 +1,32 @@
+import type { MascotDef } from "./types";
+
+export const ember: MascotDef = {
+  id: "ember",
+  name: "Ember",
+  kind: "Spark blob",
+  blurb: "A warm little flame-blob. Bouncy and expressive.",
+  pal: { o: "#4a1f12", r: "#ef6a3a", y: "#ffd166", h: "#f9a46b", p: "#ffb3a7" },
+  eye: "#2b120a",
+  glow: false,
+  eyes: { l: 5, r: 9, y: 8 },
+  mouth: { x: 7, y: 11 },
+  soft: "#f9a46b",
+  map: [
+    "................",
+    "........oo......",
+    ".......oyo......",
+    "......oyo.......",
+    ".....oooooo.....",
+    "...oorrrrrroo...",
+    "..orrrrrrrrrro..",
+    ".orrrrrrrrrrrro.",
+    ".orrrrrrrrrrrro.",
+    "orrrrrrrrrrrrrro",
+    "orprrrrrrrrrrpro",
+    "orrrrrrrrrrrrrro",
+    "orrhhhhhhhhhhrro",
+    ".orrhhhhhhhhrro.",
+    "..oooooooooooo..",
+    "................",
+  ],
+};

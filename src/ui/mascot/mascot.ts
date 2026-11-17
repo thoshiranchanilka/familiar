@@ -1,6 +1,7 @@
 // Paints Ember onto a canvas at 8 fps and handles pop-in / pop-out.
 import type { Mood } from "../../mood/types";
-import { GRID, emberPixels } from "./ember";
+import { GRID, mascotPixels } from "./render";
+import { getMascot } from "./defs";
 
 export interface MascotView { setMood(m: Mood): void; popIn(): void; popOut(): void; }
 
@@ -18,7 +19,7 @@ export function createMascot(canvas: HTMLCanvasElement): MascotView {
 
   const paint = () => {
     ctx.clearRect(0, 0, GRID, GRID);
-    for (const p of emberPixels(mood, reduced ? REDUCED_MOTION_FRAME : f)) {
+    for (const p of mascotPixels(getMascot("ember"), mood, reduced ? REDUCED_MOTION_FRAME : f)) {
       ctx.fillStyle = p.color;
       ctx.fillRect(p.x, p.y, 1, 1);
     }

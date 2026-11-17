@@ -1,0 +1,33 @@
+import type { MascotDef } from "./types";
+
+export const bolt: MascotDef = {
+  id: "bolt",
+  name: "Bolt",
+  kind: "Tiny robot",
+  blurb: "Earnest little helper with a screen face. Its antenna blinks while Claude works.",
+  pal: { o: "#2b2f3a", g: "#a9b4c4", s: "#1b2230", l: "#7f8a9c", a: "#ff8a3d" },
+  eye: "#5ef2ff",
+  glow: true,
+  eyes: { l: 5, r: 9, y: 6 },
+  mouth: { x: 7, y: 8 },
+  soft: "#1b2230",
+  blinkLetter: "a",
+  map: [
+    ".......aa.......",
+    ".......oo.......",
+    "....oooooooo....",
+    "...oggggggggo...",
+    "..oggggggggggo..",
+    "..ogssssssssgo..",
+    "..ogssssssssgo..",
+    "..ogssssssssgo..",
+    "..ogssssssssgo..",
+    "..oggggggggggo..",
+    "...oggggggggo...",
+    "....oooooooo....",
+    "....ollllllo....",
+    "...ollllllllo...",
+    "...ollllllllo...",
+    "....oo....oo....",
+  ],
+};

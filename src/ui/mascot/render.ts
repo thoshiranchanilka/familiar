@@ -1,6 +1,7 @@
-// Ember, the Claude Puppet mascot: a 16×16 pixel spark blob on a 28×28 canvas,
-// drawn procedurally per mood and frame (8 fps). Ported from the concept page.
+// Draws any mascot definition in any mood on a 28×28 grid (16×16 sprite plus room
+// for effects). Frame `f` advances at the caller's chosen rate (8 fps when animating).
 import type { Mood } from "../../mood/types";
+import type { MascotDef } from "./defs";
 
 export interface Pixel { x: number; y: number; color: string; }
 
@@ -8,31 +9,7 @@ export const GRID = 28;
 const OX = 6;
 const OY = 7;
 
-export const EMBER = {
-  pal: { o: "#4a1f12", r: "#ef6a3a", y: "#ffd166", h: "#f9a46b", p: "#ffb3a7" } as Record<string, string>,
-  eye: "#2b120a",
-  eyes: { l: 5, r: 9, y: 8 },
-  mouth: { x: 7, y: 11 },
-  map: [
-    "................",
-    "........oo......",
-    ".......oyo......",
-    "......oyo.......",
-    ".....oooooo.....",
-    "...oorrrrrroo...",
-    "..orrrrrrrrrro..",
-    ".orrrrrrrrrrrro.",
-    ".orrrrrrrrrrrro.",
-    "orrrrrrrrrrrrrro",
-    "orprrrrrrrrrrpro",
-    "orrrrrrrrrrrrrro",
-    "orrhhhhhhhhhhrro",
-    ".orrhhhhhhhhrro.",
-    "..oooooooooooo..",
-    "................",
-  ],
-};
-
+const KEY_LIT = "#ffd166";
 const WHITE = "#ffffff";
 const SPARK = "#ffe08a";
 const SHADOW = "rgba(110,110,130,.35)";
@@ -45,7 +22,7 @@ const ZZZ = "#8fa3c7";
 const RED = "#e2574c";
 const Z = ["###", ".#.", "###"];
 
-export function emberPixels(mood: Mood, f: number): Pixel[] {
+export function mascotPixels(def: MascotDef, mood: Mood, f: number): Pixel[] {
   const out: Pixel[] = [];
   const px = (x: number, y: number, color: string, w = 1, h = 1) => {
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
@@ -72,14 +49,18 @@ export function emberPixels(mood: Mood, f: number): Pixel[] {
   const sw = dy < -1 ? 8 : 10;
   px(OX + 8 - sw / 2, OY + 15, SHADOW, sw, 1);
 
-  EMBER.map.forEach((row, j) => [...row].forEach((k, i) => {
-    if (k !== ".") px(bx + i, by + j, EMBER.pal[k]);
+  def.map.forEach((row, j) => [...row].forEach((k, i) => {
+    if (k === ".") return;
+    let color = def.pal[k];
+    if (k === def.blinkLetter && mood === "working" && f % 2) color = "#ffe2c4";
+    if (k === def.blinkLetter && mood === "sleeping") color = "#5a4a40";
+    px(bx + i, by + j, color);
   }));
 
   // eyes
-  const ey = by + EMBER.eyes.y, lx = bx + EMBER.eyes.l, rx = bx + EMBER.eyes.r;
-  const line = EMBER.pal.o;
-  const openEye = (x: number) => { px(x, ey, EMBER.eye, 2, 2); px(x, ey, WHITE); };
+  const ey = by + def.eyes.y, lx = bx + def.eyes.l, rx = bx + def.eyes.r;
+  const line = def.glow ? def.eye : def.pal.o;
+  const openEye = (x: number) => { px(x, ey, def.eye, 2, 2); if (!def.glow) px(x, ey, WHITE); };
   const flat = (x: number, c: string) => px(x, ey + 1, c, 2, 1);
   const caret = (x: number) => { px(x, ey + 1, line); px(x + 1, ey, line); px(x + 2, ey + 1, line); };
 
@@ -87,10 +68,10 @@ export function emberPixels(mood: Mood, f: number): Pixel[] {
     const blinking = mood === "idle" && f % 24 === 23;
     [lx, rx].forEach((x) => (blinking ? flat(x, line) : openEye(x)));
   } else if (mood === "working") {
-    [lx, rx].forEach((x) => px(x, ey + 1, EMBER.eye, 2, 1));
+    [lx, rx].forEach((x) => px(x, ey + 1, def.eye, 2, 1));
     px(lx + 1, ey - 1, line); px(rx, ey - 1, line);
   } else if (mood === "thinking") {
-    [lx, rx].forEach((x) => { px(x + 1, ey, EMBER.eye); px(x, ey + 1, EMBER.pal.h); });
+    [lx, rx].forEach((x) => { px(x + 1, ey, def.eye); if (!def.glow) px(x, ey + 1, def.soft); });
   } else if (mood === "done") {
     caret(lx - 1); caret(rx);
   } else if (mood === "sleeping") {
@@ -102,16 +83,16 @@ export function emberPixels(mood: Mood, f: number): Pixel[] {
   }
 
   // mouth
-  const mx = bx + EMBER.mouth.x, my = by + EMBER.mouth.y, M = EMBER.pal.o;
+  const mx = bx + def.mouth.x, my = by + def.mouth.y, M = def.glow ? def.eye : def.pal.o;
   if (mood === "idle" || mood === "working") px(mx, my, M, 2, 1);
   if (mood === "thinking" || mood === "sleeping") px(mx + 1, my, M);
-  if (mood === "done" || mood === "greeting") { px(mx - 1, my, M, 4, 1); px(mx, my + 1, RED, 2, 1); }
+  if (mood === "done" || mood === "greeting") { px(mx - 1, my, M, 4, 1); px(mx, my + 1, def.glow ? M : RED, 2, 1); }
   if (mood === "error") { px(mx - 1, my + 1, M); px(mx, my, M); px(mx + 1, my + 1, M); px(mx + 2, my, M); }
 
   // effects
   if (mood === "working") {
     px(OX + 1, OY + 16, KEYBOARD, 14, 3);
-    for (let i = 0; i < 6; i++) px(OX + 2 + i * 2, OY + 17, (i + f) % 3 === 0 ? EMBER.pal.y : KEY);
+    for (let i = 0; i < 6; i++) px(OX + 2 + i * 2, OY + 17, (i + f) % 3 === 0 ? KEY_LIT : KEY);
     if (f % 4 < 2) { px(OX + 16, OY + 2, SPARK); px(OX + 18, OY + 4, SPARK); }
     else { px(OX + 17, OY + 1, SPARK); px(OX - 2, OY + 3, SPARK); }
   }
