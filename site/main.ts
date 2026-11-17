@@ -1,5 +1,4 @@
-// Familiar website: live mascots drawn with the app's own renderer, a scripted Claude Code
-// demo in the hero, a pixel field background, and small reveal/copy niceties.
+// Familiar website: a retro desktop. Every mascot here is drawn live by the app's own renderer.
 import type { Mood } from "../src/mood/types";
 import { MASCOTS, getMascot, type MascotDef } from "../src/ui/mascot/defs";
 import { createMascot, type MascotView } from "../src/ui/mascot/mascot";
@@ -9,47 +8,61 @@ const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const $ = <T extends Element = HTMLElement>(sel: string, root: ParentNode = document) => root.querySelector(sel) as T;
 const $$ = <T extends Element = HTMLElement>(sel: string, root: ParentNode = document) => [...root.querySelectorAll(sel)] as T[];
 
-// ---------- links ----------
 for (const a of $$<HTMLAnchorElement>("[data-download]")) a.href = `${REPO}/releases/latest`;
 for (const a of $$<HTMLAnchorElement>("[data-github]")) a.href = REPO;
 for (const a of $$<HTMLAnchorElement>("[data-releases]")) a.href = `${REPO}/releases`;
 
-// ---------- mascots that pause while off screen ----------
-function live(canvas: HTMLCanvasElement, def: MascotDef, mood: Mood = "idle"): MascotView {
+/** A mascot that animates only while it's on screen. */
+function live(canvas: HTMLCanvasElement, def: MascotDef, mood: Mood = "idle", level: "full" | "gentle" = "full"): MascotView {
   const view = createMascot(canvas, def);
-  view.setAnimation("full");
+  view.setAnimation(level);
   view.setMood(mood);
   new IntersectionObserver(([e]) => view.setVisible(e.isIntersecting)).observe(canvas);
   return view;
 }
 
-live($<HTMLCanvasElement>(".brand-mascot"), getMascot("ember"));
+// ---------- menu bar ----------
+live($<HTMLCanvasElement>(".mb-mascot"), getMascot("ember"), "idle", "gentle");
+const clock = $(".mb-clock");
+const tickClock = () => (clock.textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+tickClock();
+setInterval(tickClock, 30_000);
 
-// ---------- gallery ----------
-const gallery = $(".gallery");
-const views = MASCOTS.map((m) => {
-  const card = document.createElement("article");
-  card.className = "mascot-card";
-  card.innerHTML = `<canvas aria-hidden="true"></canvas><div><b></b><span></span><p></p></div>`;
-  $("b", card).textContent = m.name;
-  $("span", card).textContent = m.kind;
-  $("p", card).textContent = m.blurb;
-  gallery.append(card);
-  return live($<HTMLCanvasElement>("canvas", card), m);
-});
-for (const b of $$<HTMLButtonElement>(".moods button")) {
-  b.addEventListener("click", () => {
-    for (const o of $$(".moods button")) o.setAttribute("aria-checked", String(o === b));
-    for (const v of views) v.setMood(b.dataset.mood as Mood);
-  });
+// ---------- desktop icons (tiny pixel maps) ----------
+const ICONS: Record<string, { pal: Record<string, string>; map: string[] }> = {
+  doc: {
+    pal: { o: "#2a1d17", w: "#fffaf0", l: "#c9b8ad", f: "#ef6a3a" },
+    map: ["oooooooo....", "owwwwwwoo...", "owlllllwoo..", "owwwwwwwwo..", "owllllllwo..", "owwwwwwwwo..",
+      "owlllllwwo..", "owwwwwwwwo..", "owllllllwo..", "owwwwwffwo..", "owwwwwffwo..", "oooooooooo.."],
+  },
+  folder: {
+    pal: { o: "#2a1d17", y: "#ffd166", d: "#e9a93f" },
+    map: ["............", ".oooo.......", "oyyyyo......", "oyyyyyoooooo", "oddddddddddo", "oyyyyyyyyyyo",
+      "oyyyyyyyyyyo", "oyyyyyyyyyyo", "oyyyyyyyyyyo", "oyyyyyyyyyyo", "oooooooooooo", "............"],
+  },
+  book: {
+    pal: { o: "#2a1d17", b: "#ef6a3a", w: "#fffaf0", s: "#c94d22" },
+    map: ["............", ".oooooooooo.", ".obbbbbbbbo.", ".obwwwwwwbo.", ".obbbbbbbbo.", ".obbbbbbbbo.",
+      ".obbbbbbbbo.", ".obbbbbbbbo.", ".osssssssso.", ".owwwwwwwwo.", ".oooooooooo.", "............"],
+  },
+  cat: {
+    pal: { o: "#2a1d17", g: "#3a3f4b", w: "#fffaf0" },
+    map: ["............", ".o........o.", ".oo......oo.", ".oggggggggo.", "oggggggggggo", "oggwggggwggo",
+      "oggggggggggo", "oggggggggggo", ".oggggggggo.", "..oggggggo..", "...oooooo...", "............"],
+  },
+};
+for (const c of $$<HTMLCanvasElement>("canvas[data-icon]")) {
+  const icon = ICONS[c.dataset.icon!];
+  c.width = c.height = 12;
+  const ctx = c.getContext("2d")!;
+  icon.map.forEach((row, y) => [...row].forEach((k, x) => {
+    if (k === ".") return;
+    ctx.fillStyle = icon.pal[k];
+    ctx.fillRect(x, y, 1, 1);
+  }));
 }
 
-// ---------- CTA: a different mascot every few seconds ----------
-const cta = live($<HTMLCanvasElement>(".cta-mascot"), getMascot("ember"), "done");
-let ctaIndex = 0;
-if (!reduced) setInterval(() => { ctaIndex = (ctaIndex + 1) % MASCOTS.length; cta.setMascot(MASCOTS[ctaIndex]); }, 2600);
-
-// ---------- hero demo: a short Claude Code session the mascot reacts to ----------
+// ---------- hero: a Claude Code session, and the mascot reacting in the corner ----------
 type Step = { wait: number; line?: string; mood?: Mood; bubble?: string; show?: boolean };
 const SCRIPT: Step[] = [
   { wait: 900, line: `<span class="p">$</span> claude`, show: true, mood: "greeting", bubble: "Hi!" },
@@ -65,7 +78,6 @@ const SCRIPT: Step[] = [
   { wait: 1800, line: `<span class="p">&gt;</span> /exit`, show: false },
   { wait: 2200 },
 ];
-
 const heroCanvas = $<HTMLCanvasElement>(".hero-mascot");
 const hero = createMascot(heroCanvas, MASCOTS[0]);
 hero.setAnimation("full");
@@ -81,24 +93,21 @@ function paintTerm() {
   const prompt = `<span class="p">${lines.length && step < SCRIPT.length - 1 ? "&gt;" : "$"}</span> <span class="caret"></span>`;
   term.innerHTML = [...lines, prompt].map((l) => `<div>${l}</div>`).join("");
 }
-
-function setShown(show: boolean) {
+function pop(show: boolean) {
   heroCanvas.classList.remove("in", "out");
   void heroCanvas.offsetWidth;
   heroCanvas.classList.add(show ? "in" : "out");
   if (!show) bubble.hidden = true;
 }
-
 function runStep() {
   const s = SCRIPT[step];
   if (s.line) lines.push(s.line);
-  if (s.show !== undefined) setShown(s.show);
+  if (s.show !== undefined) pop(s.show);
   if (s.mood) hero.setMood(s.mood);
   if (s.bubble !== undefined) { bubble.textContent = s.bubble; bubble.hidden = !s.bubble; }
   paintTerm();
   step++;
   if (step >= SCRIPT.length) {
-    // next round: fresh terminal, next mascot
     step = 0;
     lines = [];
     round++;
@@ -106,7 +115,6 @@ function runStep() {
   }
   if (demoOn) demoTimer = setTimeout(runStep, SCRIPT[step].wait);
 }
-
 function setDemo(on: boolean) {
   if (on === demoOn) return;
   demoOn = on;
@@ -114,9 +122,8 @@ function setDemo(on: boolean) {
   clearTimeout(demoTimer);
   if (on) demoTimer = setTimeout(runStep, SCRIPT[step].wait);
 }
-
+const onScreen = (el: Element) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; };
 if (reduced) {
-  // a single still frame of the story instead of the animation
   lines = SCRIPT.slice(0, 9).flatMap((s) => (s.line ? [s.line] : []));
   hero.setMood("done");
   bubble.textContent = "Done!";
@@ -125,83 +132,119 @@ if (reduced) {
 } else {
   heroCanvas.classList.add("out");
   paintTerm();
-  new IntersectionObserver(([e]) => setDemo(e.isIntersecting && !document.hidden)).observe($(".demo"));
-  document.addEventListener("visibilitychange", () => setDemo(!document.hidden && isOnScreen($(".demo"))));
+  const desk = $(".desktop");
+  new IntersectionObserver(([e]) => setDemo(e.isIntersecting && !document.hidden)).observe(desk);
+  document.addEventListener("visibilitychange", () => setDemo(!document.hidden && onScreen(desk)));
 }
 
-function isOnScreen(el: Element) {
-  const r = el.getBoundingClientRect();
-  return r.bottom > 0 && r.top < innerHeight;
+// ---------- session timeline + usage peek (follow the chosen mascot) ----------
+const timeline = $$<HTMLCanvasElement>(".timeline canvas").map((c) => live(c, MASCOTS[0], c.dataset.mood as Mood));
+const usageMascot = live($<HTMLCanvasElement>(".usage-mascot"), MASCOTS[0], "idle");
+
+// ---------- character select ----------
+const QUIRKS: Record<string, string> = {
+  ember: "Bounces with a big hop when a task lands.",
+  mochi: "Naps the moment you stop typing.",
+  bolt: "Its antenna blinks while Claude works.",
+  boo: "Fades to see-through when it naps, and says BOO on errors.",
+  inky: "Taps the keys with its tentacles, and puffs ink on errors.",
+  sprout: "Its leaf droops while thinking, and a flower opens when done.",
+  lotl: "Gills flutter while it works, and it blushes when done.",
+  hop: "Sleepy-eyed, puffs its throat while thinking, and hops extra high.",
+  dot: "Puffs smoke while busy, and breathes a tiny flame on errors.",
+};
+let stageMood: Mood = "idle";
+const stage = live($<HTMLCanvasElement>(".stage-mascot"), MASCOTS[0]);
+const roster = $(".roster");
+const rosterButtons = MASCOTS.map((m, i) => {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.setAttribute("role", "radio");
+  b.setAttribute("aria-checked", String(i === 0));
+  b.innerHTML = `<canvas aria-hidden="true"></canvas><span></span>`;
+  $("span", b).textContent = m.name;
+  roster.append(b);
+  live($<HTMLCanvasElement>("canvas", b), m, "idle", "gentle");
+  b.addEventListener("click", () => choose(m));
+  return { m, b };
+});
+function choose(m: MascotDef) {
+  for (const r of rosterButtons) r.b.setAttribute("aria-checked", String(r.m === m));
+  stage.setMascot(m);
+  stage.setMood(stageMood);
+  $(".stage-title").textContent = `${m.name}.app`;
+  $(".stage-name").textContent = m.name;
+  $(".stage-kind").textContent = m.kind;
+  $(".stage-blurb").textContent = m.blurb;
+  $(".stage-quirk").textContent = QUIRKS[m.id] ?? "";
+  for (const t of timeline) t.setMascot(m);
+  usageMascot.setMascot(m);
 }
-
-// ---------- pixel field behind the hero ----------
-const field = $<HTMLCanvasElement>(".field");
-const fctx = field.getContext("2d")!;
-const CELL = 11;
-let cols = 0, rows = 0, cells: Float32Array = new Float32Array(0), fieldTimer: ReturnType<typeof setInterval> | undefined;
-
-function hash(i: number) { const x = Math.sin(i * 127.1) * 43758.5453; return x - Math.floor(x); }
-
-function sizeField() {
-  const r = field.getBoundingClientRect();
-  const dpr = Math.min(devicePixelRatio || 1, 2);
-  field.width = Math.round(r.width * dpr);
-  field.height = Math.round(r.height * dpr);
-  fctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  cols = Math.ceil(r.width / CELL);
-  rows = Math.ceil(r.height / CELL);
-  // density: a soft diagonal band rising from bottom-left to top-right, like a wave of pixels
-  cells = new Float32Array(cols * rows);
-  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-    const bandY = rows * (0.92 - 0.62 * (x / cols)) + Math.sin(x / 9) * 3;
-    const d = (y - bandY) / (rows * 0.12);
-    cells[y * cols + x] = Math.exp(-d * d) * (0.35 + 0.65 * hash(x * 7 + y * 131));
-  }
+for (const b of $$<HTMLButtonElement>(".moods button")) {
+  b.addEventListener("click", () => {
+    for (const o of $$(".moods button")) o.setAttribute("aria-checked", String(o === b));
+    stageMood = b.dataset.mood as Mood;
+    stage.setMood(stageMood);
+  });
 }
-
-function drawField(t: number) {
-  const w = cols * CELL, h = rows * CELL;
-  fctx.clearRect(0, 0, w, h);
-  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-    const i = y * cols + x;
-    const base = cells[i];
-    if (base < 0.08) continue;
-    const flicker = 0.55 + 0.45 * Math.sin(t * 0.0016 + hash(i) * 40);
-    const a = base * flicker;
-    if (a < 0.1) continue;
-    const special = hash(i + 999);
-    fctx.fillStyle = special > 0.975 ? `rgba(239,106,58,${a})` : special > 0.965 ? `rgba(255,209,102,${a * 0.8})` : `rgba(235,235,228,${a * 0.85})`;
-    const s = a > 0.6 ? 5 : a > 0.35 ? 4 : 2;
-    fctx.fillRect(x * CELL + (CELL - s) / 2, y * CELL + (CELL - s) / 2, s, s);
-  }
+// arrow keys move through radio groups
+for (const group of $$(".roster, .moods")) {
+  group.addEventListener("keydown", (e) => {
+    const items = $$<HTMLButtonElement>("button", group);
+    const i = items.indexOf(document.activeElement as HTMLButtonElement);
+    const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (i < 0 || !d) return;
+    e.preventDefault();
+    const next = items[(i + d + items.length) % items.length];
+    next.focus();
+    next.click();
+  });
 }
+choose(MASCOTS[0]);
 
-sizeField();
-drawField(0);
-addEventListener("resize", () => { sizeField(); drawField(performance.now()); });
-if (!reduced) {
-  new IntersectionObserver(([e]) => {
-    clearInterval(fieldTimer);
-    if (e.isIntersecting) fieldTimer = setInterval(() => { if (!document.hidden) drawField(performance.now()); }, 120);
-  }).observe(field);
-}
-
-// ---------- copy buttons ----------
+// ---------- install checklist (remembered on this device only) ----------
+const boxes = $$<HTMLInputElement>(".checklist input");
+let saved: boolean[] = [];
+try { saved = JSON.parse(localStorage.getItem("familiar-install") ?? "[]"); } catch { /* storage unavailable */ }
+boxes.forEach((box, i) => {
+  box.checked = Boolean(saved[i]);
+  box.addEventListener("change", () => {
+    try { localStorage.setItem("familiar-install", JSON.stringify(boxes.map((b) => b.checked))); } catch { /* ignore */ }
+  });
+});
 for (const b of $$<HTMLButtonElement>(".copy")) {
   b.addEventListener("click", async () => {
     const text = b.previousElementSibling?.textContent ?? "";
-    try { await navigator.clipboard.writeText(text); b.textContent = "Copied"; } catch { b.textContent = "Select & copy"; }
+    try { await navigator.clipboard.writeText(text); b.textContent = "Copied!"; } catch { b.textContent = "Select & copy"; }
     setTimeout(() => (b.textContent = "Copy"), 1600);
   });
 }
 
-// ---------- reveal on scroll ----------
-if (!reduced) {
-  const io = new IntersectionObserver((entries) => {
-    for (const e of entries) if (e.isIntersecting) { e.target.classList.add("shown"); io.unobserve(e.target); }
-  }, { rootMargin: "0px 0px -8% 0px" });
-  for (const el of $$(".section > *, .card, .mascot-card, .steps li, .doc-grid article, .faq details, .cta")) {
-    el.classList.add("reveal");
-    io.observe(el);
+// ---------- docs tabs ----------
+const tabs = $$<HTMLButtonElement>('[role="tab"]');
+function selectTab(tab: HTMLButtonElement) {
+  for (const t of tabs) {
+    const on = t === tab;
+    t.setAttribute("aria-selected", String(on));
+    t.tabIndex = on ? 0 : -1;
+    $(`#${t.getAttribute("aria-controls")}`).hidden = !on;
   }
+}
+tabs.forEach((t, i) => {
+  t.addEventListener("click", () => selectTab(t));
+  t.addEventListener("keydown", (e) => {
+    const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (!d) return;
+    const next = tabs[(i + d + tabs.length) % tabs.length];
+    next.focus();
+    selectTab(next);
+  });
+});
+
+// ---------- taskbar dock: the whole cast ----------
+const dock = $(".dock");
+for (const m of MASCOTS) {
+  const c = document.createElement("canvas");
+  dock.append(c);
+  live(c, m, "idle", "gentle");
 }

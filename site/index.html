@@ -7,202 +7,219 @@
     <meta name="description" content="Familiar is a tiny pixel mascot for macOS that pops up while you use Claude Code, reacts to what Claude is doing, and shows your model and usage." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Silkscreen&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
-    <div class="frame">
-      <section class="hero" id="top">
-        <canvas class="field" aria-hidden="true"></canvas>
-        <nav class="nav">
-          <a class="brand" href="#top"><canvas class="brand-mascot" aria-hidden="true"></canvas><span>Familiar</span></a>
-          <div class="links">
-            <a href="#how">How it works</a>
-            <a href="#mascots">Mascots</a>
-            <a href="#install">Install</a>
-            <a href="#docs">Docs</a>
-            <a href="#faq">FAQ</a>
-          </div>
-          <a class="pill pill-accent pill-sm" data-download href="#install"><svg class="dl" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>Download</a>
-        </nav>
+    <header class="menubar">
+      <a class="mb-brand" href="#top"><canvas class="mb-mascot" aria-hidden="true"></canvas>Familiar</a>
+      <nav class="mb-links" aria-label="Sections">
+        <a href="#session">Session</a>
+        <a href="#mascots">Mascots</a>
+        <a href="#install">Install</a>
+        <a href="#docs">Docs</a>
+        <a href="#help">Help</a>
+      </nav>
+      <span class="mb-clock" aria-hidden="true"></span>
+    </header>
 
-        <div class="hero-body">
-          <p class="kicker">Free · Open source · macOS</p>
-          <h1>A tiny companion for <span class="hl">Claude Code</span></h1>
-          <p class="lede">Familiar pops up in a corner of your Mac while Claude works, shows how it's going, and slips away when you're done.</p>
-          <div class="actions">
-            <a class="pill pill-accent" data-download href="#install"><svg class="dl" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>Download for Mac</a>
-            <a class="pill pill-ghost" data-github href="#">View on GitHub</a>
-          </div>
+    <!-- Hero: a little desktop where the mascot lives, just like the real app -->
+    <section class="desktop" id="top">
+      <div class="icons" aria-label="Shortcuts">
+        <a class="icon" href="#install"><canvas data-icon="doc"></canvas><span>Install.txt</span></a>
+        <a class="icon" href="#mascots"><canvas data-icon="folder"></canvas><span>Mascots</span></a>
+        <a class="icon" href="#docs"><canvas data-icon="book"></canvas><span>Docs</span></a>
+        <a class="icon" data-github href="#"><canvas data-icon="cat"></canvas><span>GitHub</span></a>
+      </div>
 
-          <div class="demo" aria-label="Animated demo: a Claude Code session and the mascot reacting">
-            <div class="term">
-              <div class="term-bar"><i></i><i></i><i></i><span>~/my-app — claude</span></div>
-              <div class="term-body" aria-live="off"></div>
-            </div>
-            <div class="demo-mascot">
-              <div class="bubble" hidden></div>
-              <canvas class="hero-mascot"></canvas>
-            </div>
+      <div class="window welcome">
+        <div class="titlebar"><i class="close" aria-hidden="true"></i><span>Welcome to Familiar</span></div>
+        <div class="win-body">
+          <p class="eyebrow">Free · Open source · for macOS</p>
+          <h1>A tiny companion<br />for <mark>Claude Code</mark>.</h1>
+          <p class="lede">A pixel buddy that pops into the corner of your screen while Claude works, shows how it's going, and slips away when you're done.</p>
+          <div class="buttons">
+            <a class="btn btn-primary" data-download href="#install"><svg class="dl" viewBox="0 0 12 12" aria-hidden="true"><path d="M5 1h2v5h2v1H8v1H7v1H5V8H4V7H3V6h2zM1 10h10v1H1z" /></svg>Download for Mac</a>
+            <a class="btn" data-github href="#">View on GitHub</a>
           </div>
         </div>
-      </section>
-    </div>
+      </div>
+
+      <div class="window term" aria-label="Animated demo of a Claude Code session">
+        <div class="titlebar dark"><i class="close" aria-hidden="true"></i><span>Terminal — ~/my-app</span></div>
+        <div class="term-body" aria-live="off"></div>
+      </div>
+
+      <div class="corner-mascot" aria-hidden="true">
+        <div class="bubble" hidden></div>
+        <canvas class="hero-mascot"></canvas>
+      </div>
+    </section>
 
     <main>
-      <section class="section" id="how">
-        <span class="chip">How it works</span>
-        <h2>It shows up when you do</h2>
-        <p class="sub">No windows to manage. Familiar waits quietly in the background and appears only while a Claude Code session is running.</p>
-        <div class="cards four">
-          <article class="card">
-            <span class="badge"><svg viewBox="0 0 24 24"><path d="M5 19 19 5M9 5h10v10" /></svg></span>
-            <h3>Pops in</h3>
-            <p>Start Claude Code in any terminal and your mascot hops into the corner with a little hello.</p>
-          </article>
-          <article class="card">
-            <span class="badge"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" /><path d="M12 8v4l3 2" /></svg></span>
-            <h3>Reacts</h3>
-            <p>It types while Claude works, sweats when it's thinking longer, cheers when it's done, and winces at errors.</p>
-          </article>
-          <article class="card">
-            <span class="badge"><svg viewBox="0 0 24 24"><path d="M4 18h16M7 15V9M12 15V6M17 15v-4" /></svg></span>
-            <h3>Usage at a glance</h3>
-            <p>Hover over it to see the model, your 5-hour and weekly limits with reset times, and context used.</p>
-          </article>
-          <article class="card">
-            <span class="badge"><svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M4.6 6.6l2 2M17.4 15.4l2 2M3 12h3M18 12h3M4.6 17.4l2-2M17.4 8.6l2-2" /></svg></span>
-            <h3>Barely sips power</h3>
-            <p>Hidden between sessions and redrawn only when the picture changes. About what a menu-bar clock uses.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="section" id="mascots">
-        <span class="chip">Mascots</span>
-        <h2>Pick your familiar</h2>
-        <p class="sub">Nine characters, each with its own little touches. Try the moods:</p>
-        <div class="moods" role="radiogroup" aria-label="Mood">
-          <button data-mood="idle" aria-checked="true" role="radio">Idle</button>
-          <button data-mood="working" role="radio">Working</button>
-          <button data-mood="thinking" role="radio">Thinking</button>
-          <button data-mood="done" role="radio">Done</button>
-          <button data-mood="error" role="radio">Error</button>
-          <button data-mood="sleeping" role="radio">Asleep</button>
-        </div>
-        <div class="gallery"></div>
-      </section>
-
-      <section class="section" id="install">
-        <span class="chip">Install</span>
-        <h2>Up and running in two minutes</h2>
-        <p class="sub">Familiar is free and open source. It isn't signed with a paid Apple developer account, so macOS asks you to approve it once.</p>
-        <ol class="steps">
-          <li>
-            <h3>Download</h3>
-            <p>Get the latest <code>.dmg</code> from the <a data-releases href="#">Releases page</a>, open it, and drag <b>Familiar</b> into <b>Applications</b>.</p>
-          </li>
-          <li>
-            <h3>Allow it once</h3>
-            <p>Open Familiar. macOS will block it the first time. Go to <b>System Settings → Privacy &amp; Security</b>, scroll down to the message about Familiar, click <b>Open Anyway</b> and confirm.</p>
-            <p class="muted">Comfortable with Terminal? This does the same:</p>
-            <div class="code"><code>xattr -dr com.apple.quarantine "/Applications/Familiar.app"</code><button class="copy" type="button">Copy</button></div>
-            <p class="note">On a work Mac managed by IT, policy may block apps that aren't notarized. Ask your IT team if <b>Open Anyway</b> doesn't appear.</p>
-          </li>
-          <li>
-            <h3>Connect Claude Code</h3>
-            <p>Your mascot says <i>"Click me to connect Claude Code."</i> Click it (or right-click → <b>Connect Claude Code</b>). It adds a few entries to <code>~/.claude/settings.json</code> and saves a backup first.</p>
-          </li>
-          <li>
-            <h3>Start a session</h3>
-            <p>Run <code>claude</code> in any terminal. Your mascot pops up. Type <code>/exit</code> and it waves goodbye.</p>
-          </li>
+      <!-- How a session goes -->
+      <section class="block" id="session">
+        <h2 class="block-title"><span>01</span>How a session goes</h2>
+        <p class="block-sub">Familiar stays out of sight until you start Claude Code. Then it keeps you company.</p>
+        <ol class="timeline">
+          <li><canvas data-mood="greeting"></canvas><b>Pops in</b><span>Start <code>claude</code> in any terminal and it hops into the corner.</span></li>
+          <li><canvas data-mood="working"></canvas><b>Works along</b><span>Taps away on its little keyboard while Claude edits and runs things.</span></li>
+          <li><canvas data-mood="thinking"></canvas><b>Thinks longer</b><span>After 15 seconds it starts to sweat a bit, so you know it's a big one.</span></li>
+          <li><canvas data-mood="done"></canvas><b>Celebrates</b><span>Hops and sparkles when Claude finishes. Winces if something fails.</span></li>
+          <li><canvas data-mood="sleeping"></canvas><b>Heads off</b><span>Type <code>/exit</code> and it waves goodbye. Nothing runs while it's gone.</span></li>
         </ol>
-      </section>
-
-      <section class="section docs" id="docs">
-        <span class="chip">Docs</span>
-        <h2>Using Familiar</h2>
-        <div class="doc-grid">
-          <article>
-            <h3>When it shows up</h3>
-            <ul>
-              <li>It appears when a Claude Code session starts, in any terminal, and in Claude Desktop's <b>Code</b> tab if your version runs Claude Code hooks there.</li>
-              <li>It hides when you exit, or after 5 quiet minutes if a terminal was closed without exiting.</li>
-              <li>During long tasks it waits up to 30 minutes, so it never vanishes mid-build.</li>
-              <li>Claude Desktop <b>chat</b> isn't supported: the app doesn't share what it's doing.</li>
-            </ul>
-          </article>
-          <article>
-            <h3>Controls</h3>
-            <ul>
-              <li><b>Hover</b> the mascot for model, limits and context used.</li>
-              <li><b>Right-click</b> it for Settings, Hide, Connect/Disconnect and Quit.</li>
-              <li><b>Drag</b> it anywhere on screen. It remembers the spot.</li>
-              <li><b>Want it now?</b> Open Familiar again from Applications or Spotlight: the mascot appears and Settings opens.</li>
-            </ul>
-          </article>
-          <article>
-            <h3>Settings</h3>
-            <ul>
-              <li><b>Mascot:</b> any of the nine.</li>
-              <li><b>Size</b> and <b>corner</b> of the screen, plus <b>Advanced</b> sliders to place it exactly.</li>
-              <li><b>Animation:</b> Full, Gentle (default: animates only while Claude is busy) or Still.</li>
-              <li><b>Open at login:</b> on by default, so it's always ready.</li>
-            </ul>
-          </article>
-          <article>
-            <h3>Privacy</h3>
-            <ul>
-              <li>Everything stays on your Mac. The app listens only on <code>127.0.0.1</code> and requires a random token.</li>
-              <li>The hook sends only the event name, session id and model. Never prompts, replies, files or tool output.</li>
-              <li>The status line passes Claude Code's status data locally; Familiar uses only model, context and rate limits, and stores nothing.</li>
-            </ul>
-          </article>
-          <article>
-            <h3>Power</h3>
-            <table>
-              <tr><th>State</th><th>CPU</th></tr>
-              <tr><td>Hidden, no session</td><td>usually 0.00%</td></tr>
-              <tr><td>On screen, idle</td><td>0.07–0.28%</td></tr>
-              <tr><td>Claude working</td><td>8 fps animation</td></tr>
-            </table>
-            <p class="muted">It switches to still frames in Low Power Mode.</p>
-          </article>
-          <article>
-            <h3>Uninstall</h3>
-            <ol>
-              <li>Right-click the mascot → <b>Disconnect Claude Code</b> (restores your settings).</li>
-              <li>In Settings, switch off <b>Open at login</b>, then quit.</li>
-              <li>Delete Familiar from Applications, and the <code>~/.claude-mascot</code> folder.</li>
-            </ol>
-          </article>
+        <div class="window peek">
+          <div class="titlebar"><i class="close" aria-hidden="true"></i><span>Hover for usage</span></div>
+          <div class="win-body usage">
+            <canvas class="usage-mascot" aria-hidden="true"></canvas>
+            <div class="usage-card">
+              <b>Opus 5.5</b>
+              <div class="row"><span>5-hour limit</span><span>23% · resets in 3h 12m</span></div><div class="bar"><i style="width:23%"></i></div>
+              <div class="row"><span>Weekly limit</span><span>41% · resets in 4d</span></div><div class="bar"><i style="width:41%"></i></div>
+              <div class="row"><span>Context used</span><span>8%</span></div><div class="bar"><i style="width:8%"></i></div>
+            </div>
+            <p>Hover over your mascot any time to see the model, your 5-hour and weekly limits with reset times, and how full the context window is.</p>
+          </div>
         </div>
       </section>
 
-      <section class="section" id="faq">
-        <span class="chip">FAQ</span>
-        <h2>Questions</h2>
+      <!-- Character select -->
+      <section class="block" id="mascots">
+        <h2 class="block-title"><span>02</span>Choose your familiar</h2>
+        <p class="block-sub">Nine characters, each with its own little quirk. Switch any time in Settings.</p>
+        <div class="select">
+          <div class="window stage">
+            <div class="titlebar"><i class="close" aria-hidden="true"></i><span class="stage-title">Ember</span></div>
+            <div class="win-body">
+              <canvas class="stage-mascot" aria-hidden="true"></canvas>
+              <div class="stage-info">
+                <h3 class="stage-name">Ember</h3>
+                <p class="stage-kind">Spark blob</p>
+                <p class="stage-blurb"></p>
+                <p class="stage-quirk"></p>
+                <div class="moods" role="radiogroup" aria-label="Try a mood">
+                  <button role="radio" data-mood="idle" aria-checked="true">Idle</button>
+                  <button role="radio" data-mood="working">Working</button>
+                  <button role="radio" data-mood="thinking">Thinking</button>
+                  <button role="radio" data-mood="done">Done</button>
+                  <button role="radio" data-mood="error">Error</button>
+                  <button role="radio" data-mood="sleeping">Asleep</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="roster" role="radiogroup" aria-label="Mascot"></div>
+        </div>
+      </section>
+
+      <!-- Install -->
+      <section class="block" id="install">
+        <h2 class="block-title"><span>03</span>Install</h2>
+        <p class="block-sub">About two minutes. Familiar is free and isn't signed with a paid Apple developer account, so macOS asks you to approve it once.</p>
+        <div class="window doc">
+          <div class="titlebar"><i class="close" aria-hidden="true"></i><span>Install.txt</span></div>
+          <ol class="win-body checklist">
+            <li><label><input type="checkbox" /><span><b>Download</b> the latest <code>.dmg</code> from the <a data-releases href="#">Releases page</a>, open it, and drag <b>Familiar</b> into <b>Applications</b>.</span></label></li>
+            <li>
+              <label><input type="checkbox" /><span><b>Allow it once.</b> Open Familiar. macOS blocks it the first time, so go to <b>System Settings → Privacy &amp; Security</b>, scroll to the message about Familiar, click <b>Open Anyway</b> and confirm.</span></label>
+              <p class="aside">Comfortable with Terminal? This does the same thing:</p>
+              <div class="code"><code>xattr -dr com.apple.quarantine "/Applications/Familiar.app"</code><button class="btn btn-sm copy" type="button">Copy</button></div>
+              <p class="aside">On a work Mac managed by IT, policy may block apps that aren't notarized. Ask your IT team if <b>Open Anyway</b> doesn't appear.</p>
+            </li>
+            <li><label><input type="checkbox" /><span><b>Connect Claude Code.</b> Your mascot says <i>"Click me to connect Claude Code."</i> Click it, or right-click it and choose <b>Connect Claude Code</b>. It adds a few entries to <code>~/.claude/settings.json</code> and saves a backup first.</span></label></li>
+            <li><label><input type="checkbox" /><span><b>Start a session.</b> Run <code>claude</code> in any terminal and your mascot pops up. Type <code>/exit</code> and it waves goodbye.</span></label></li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- Docs -->
+      <section class="block" id="docs">
+        <h2 class="block-title"><span>04</span>Docs</h2>
+        <div class="window docs">
+          <div class="titlebar"><i class="close" aria-hidden="true"></i><span>Familiar Help</span></div>
+          <div class="tabs" role="tablist" aria-label="Docs topics">
+            <button role="tab" id="t-shows" aria-controls="p-shows" aria-selected="true">When it shows up</button>
+            <button role="tab" id="t-controls" aria-controls="p-controls" aria-selected="false" tabindex="-1">Controls</button>
+            <button role="tab" id="t-settings" aria-controls="p-settings" aria-selected="false" tabindex="-1">Settings</button>
+            <button role="tab" id="t-privacy" aria-controls="p-privacy" aria-selected="false" tabindex="-1">Privacy</button>
+            <button role="tab" id="t-power" aria-controls="p-power" aria-selected="false" tabindex="-1">Power</button>
+            <button role="tab" id="t-uninstall" aria-controls="p-uninstall" aria-selected="false" tabindex="-1">Uninstall</button>
+          </div>
+          <div class="win-body panels">
+            <div role="tabpanel" id="p-shows" aria-labelledby="t-shows">
+              <ul>
+                <li>It appears when a Claude Code session starts, in any terminal. It also works in Claude Desktop's <b>Code</b> tab if your version runs Claude Code hooks there.</li>
+                <li>It hides when you exit, or after 5 quiet minutes if a terminal was closed without exiting.</li>
+                <li>During long tasks it waits up to 30 minutes, so it never vanishes mid-build.</li>
+                <li>Claude Desktop <b>chat</b> isn't supported: the app doesn't share what it's doing.</li>
+              </ul>
+            </div>
+            <div role="tabpanel" id="p-controls" aria-labelledby="t-controls" hidden>
+              <ul>
+                <li><b>Hover</b> the mascot for the model, limits and context used.</li>
+                <li><b>Drag</b> it anywhere on screen. It remembers the spot.</li>
+                <li><b>Right-click</b> it for Settings, Hide, Connect or Disconnect, and Quit.</li>
+                <li><b>Want it now?</b> Open Familiar again from Applications or Spotlight: the mascot appears and Settings opens.</li>
+              </ul>
+            </div>
+            <div role="tabpanel" id="p-settings" aria-labelledby="t-settings" hidden>
+              <ul>
+                <li><b>Mascot:</b> any of the nine.</li>
+                <li><b>Size</b> and <b>corner</b>, plus <b>Advanced</b> sliders to place it exactly.</li>
+                <li><b>Animation:</b> Full, Gentle (the default, which animates only while Claude is busy) or Still.</li>
+                <li><b>Open at login:</b> on by default, so it's always ready.</li>
+              </ul>
+            </div>
+            <div role="tabpanel" id="p-privacy" aria-labelledby="t-privacy" hidden>
+              <ul>
+                <li>Everything stays on your Mac. The app listens only on <code>127.0.0.1</code> and requires a random token.</li>
+                <li>The hook sends only the event name, session id and model. Never prompts, replies, files or tool output.</li>
+                <li>The status line passes Claude Code's status data to the app locally. Familiar uses only the model, context and rate limits, and stores nothing.</li>
+              </ul>
+            </div>
+            <div role="tabpanel" id="p-power" aria-labelledby="t-power" hidden>
+              <table>
+                <tr><th>State</th><th>CPU</th></tr>
+                <tr><td>Hidden, no session</td><td>usually 0.00%</td></tr>
+                <tr><td>On screen, idle</td><td>0.07–0.28%</td></tr>
+                <tr><td>While Claude works</td><td>an 8 fps animation</td></tr>
+              </table>
+              <p>About what a menu-bar clock uses. It switches to still frames in Low Power Mode.</p>
+            </div>
+            <div role="tabpanel" id="p-uninstall" aria-labelledby="t-uninstall" hidden>
+              <ol>
+                <li>Right-click the mascot and choose <b>Disconnect Claude Code</b>. This restores your settings.</li>
+                <li>In Settings, switch off <b>Open at login</b>, then quit.</li>
+                <li>Delete Familiar from Applications, and the <code>~/.claude-mascot</code> folder.</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Help -->
+      <section class="block" id="help">
+        <h2 class="block-title"><span>05</span>Help</h2>
         <div class="faq">
           <details>
             <summary>Claude Code prints "hook failed … ECONNREFUSED"</summary>
-            <p>That's an old version's hooks. Open Familiar once: it switches to the new quiet hook automatically, and the messages stop, even when Familiar is closed.</p>
+            <p>Those messages come from an old version's hooks. Open Familiar once and it switches to the new quiet hook automatically. The messages stop, even when Familiar is closed.</p>
           </details>
           <details>
             <summary>The mascot doesn't appear</summary>
-            <p>Check that it's connected (right-click → the menu says <b>Disconnect</b> when it is), then start a <i>new</i> Claude Code session. If you hid it, open Familiar again from Applications.</p>
+            <p>Check that it's connected: right-click it, and the menu says <b>Disconnect</b> when it is. Then start a <i>new</i> Claude Code session. If you hid it, open Familiar again from Applications.</p>
           </details>
           <details>
             <summary>Does it work with Claude Desktop?</summary>
-            <p>With the <b>Code</b> tab, if your Claude Desktop version runs Claude Code hooks there. Regular Desktop chat isn't supported.</p>
+            <p>Yes, with the <b>Code</b> tab, if your Claude Desktop version runs Claude Code hooks there. Regular Desktop chat isn't supported.</p>
           </details>
           <details>
-            <summary>Why does macOS say it can't check the app for malware?</summary>
-            <p>Apple's notarization needs a paid developer account, and Familiar is a free hobby project. The source is all on GitHub, and apps you build yourself open without the warning.</p>
+            <summary>Why does macOS warn me about the app?</summary>
+            <p>Apple's notarization needs a paid developer account, and Familiar is a free hobby project. All the source is on GitHub, and apps you build yourself open without the warning.</p>
           </details>
           <details>
             <summary>Can I build it myself?</summary>
-            <p>Yes: install Node 20+, Rust and the Xcode command-line tools, then <code>npm install</code> and <code>npm run tauri build</code>. See the README on GitHub.</p>
+            <p>Yes. Install Node 20+, Rust and the Xcode command-line tools, then run <code>npm install</code> and <code>npm run tauri build</code>. The README on GitHub has the details.</p>
           </details>
           <details>
             <summary>Is this made by Anthropic?</summary>
@@ -210,17 +227,11 @@
           </details>
         </div>
       </section>
-
-      <section class="cta">
-        <canvas class="cta-mascot" aria-hidden="true"></canvas>
-        <h2>Give your terminal a <span class="hl">friend</span></h2>
-        <a class="pill pill-accent" data-download href="#install"><svg class="dl" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>Download for Mac</a>
-      </section>
     </main>
 
-    <footer class="footer">
-      <span>Familiar · MIT licensed · <a data-github href="#">GitHub</a></span>
-      <span>An unofficial fan project, not affiliated with or endorsed by Anthropic.</span>
+    <footer class="taskbar">
+      <div class="dock" aria-hidden="true"></div>
+      <p>Familiar · MIT licensed · <a data-github href="#">GitHub</a> · An unofficial fan project, not affiliated with or endorsed by Anthropic.</p>
     </footer>
 
     <script type="module" src="./main.ts"></script>
