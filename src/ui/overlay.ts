@@ -132,6 +132,10 @@ async function onMascotClick() {
   }
 }
 mascot.addEventListener("click", onMascotClick);
+mascot.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  invoke("show_context_menu");
+});
 invoke<boolean>("mascot_status").then((connected) => {
   if (!connected) showNotice("Hi, I'm Ember! Click me to connect Claude Code.", ONBOARDING_MS);
 });

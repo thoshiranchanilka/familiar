@@ -185,11 +185,43 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let size = Submenu::with_items(app, "Size", true, &size_refs)?;
     let auto_hide = CheckMenuItem::with_id(app, "auto-hide", "Hide while asleep", true, s.auto_hide, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Claude Puppet", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     Menu::with_items(app, &[
+        &settings, &PredefinedMenuItem::separator(app)?,
         &status, &connect, &PredefinedMenuItem::separator(app)?,
         &hide, &corner, &size, &auto_hide, &PredefinedMenuItem::separator(app)?,
         &quit,
     ])
+}
+
+/// The small menu shown when right-clicking the mascot.
+fn build_context_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
+    let installed = home(app).map(|h| installer::is_installed(&h)).unwrap_or(false);
+    let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
+    let hide = MenuItem::with_id(app, "toggle-hidden", "Hide mascot", true, None::<&str>)?;
+    let connect = if installed {
+        MenuItem::with_id(app, "disconnect", "Disconnect Claude Code", true, None::<&str>)?
+    } else {
+        MenuItem::with_id(app, "connect", "Connect Claude Code", true, None::<&str>)?
+    };
+    let quit = MenuItem::with_id(app, "quit", "Quit Claude Puppet", true, None::<&str>)?;
+    Menu::with_items(app, &[
+        &settings, &hide, &connect, &PredefinedMenuItem::separator(app)?, &quit,
+    ])
+}
+
+#[tauri::command]
+fn show_context_menu(app: AppHandle, window: tauri::Window) -> Result<(), String> {
+    let menu = build_context_menu(&app).map_err(|e| e.to_string())?;
+    window.popup_menu(&menu).map_err(|e| e.to_string())
+}
+
+/// Opens the settings window, or focuses it if it is already open.
+fn open_settings(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
 }
 
 fn refresh_tray(app: &AppHandle) {
@@ -211,6 +243,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         "toggle-hidden" => update_settings(app, |s| s.hidden = !s.hidden),
         "auto-hide" => update_settings(app, |s| s.auto_hide = !s.auto_hide),
         "quit" => app.exit(0),
+        "settings" => open_settings(app),
         other => {
             if let Some((_, _, c)) = CORNERS.iter().find(|(cid, _, _)| *cid == other) {
                 let c = *c;
@@ -258,11 +291,17 @@ fn spawn_hover_watch(app: AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // Reopening the app brings the mascot back and opens Settings.
+            update_settings(app, |s| s.hidden = false);
+            open_settings(app);
+        }))
         .plugin(tauri_plugin_opener::init())
+        .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
         .manage(BridgeError(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             bridge_error, mascot_install, mascot_uninstall, mascot_status, get_settings,
-            power::low_power
+            power::low_power, show_context_menu
         ])
         .setup(|app| {
             // No Dock icon and no app switcher entry: the mascot is an accessory overlay.
@@ -278,7 +317,6 @@ pub fn run() {
                 .tooltip("Claude Puppet")
                 .menu(&build_menu(&handle)?)
                 .show_menu_on_left_click(true)
-                .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
                 .build(app)?;
 
             let window = app.get_webview_window("main").expect("main window");
