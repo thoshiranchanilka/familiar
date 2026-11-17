@@ -53,6 +53,8 @@ const CLAUDE_BUNDLE_ID: &str = "com.anthropic.claudefordesktop";
 const CLAUDE_APP_DIR: &str = "/Claude.app/Contents/";
 const CLAUDE_MAIN_EXE: &str = "/Claude.app/Contents/MacOS/Claude";
 const SAMPLE_EVERY: std::time::Duration = std::time::Duration::from_millis(500);
+/// Full process-list scans happen every 8 samples (4 s); other samples refresh only Claude's PIDs.
+const FULL_SCAN_EVERY: u32 = 8;
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -78,9 +80,15 @@ fn claude_is_frontmost() -> bool {
 /// Samples Claude's network bytes per second into a shared value. `nettop`
 /// block-buffers when piped, so it runs as repeated two-sample, one-second
 /// runs (cumulative block, then a one-second delta block) that flush on exit.
-fn spawn_net_sampler(latest: std::sync::Arc<std::sync::atomic::AtomicU64>) {
+fn spawn_net_sampler(latest: std::sync::Arc<std::sync::atomic::AtomicU64>, claude_running: std::sync::Arc<std::sync::atomic::AtomicBool>) {
     use std::sync::atomic::Ordering;
     std::thread::spawn(move || loop {
+        // No Claude Desktop, no sampling: nettop lists every socket on the system.
+        if !claude_running.load(Ordering::Relaxed) {
+            latest.store(0, Ordering::Relaxed);
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            continue;
+        }
         let out = std::process::Command::new("/usr/bin/nettop")
             .args(["-P", "-d", "-x", "-L", "2", "-s", "1", "-J", "bytes_in,bytes_out"])
             .stderr(std::process::Stdio::null())
@@ -106,11 +114,12 @@ fn spawn_net_sampler(latest: std::sync::Arc<std::sync::atomic::AtomicU64>) {
 /// Watches Claude Desktop and sends `source: "desktop"` events. If Claude is
 /// already running when the mascot starts, no launch greeting is sent.
 pub fn spawn(sink: std::sync::mpsc::Sender<MascotEvent>) {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
     let net = std::sync::Arc::new(AtomicU64::new(0));
-    spawn_net_sampler(net.clone());
+    let claude_running = std::sync::Arc::new(AtomicBool::new(false));
+    spawn_net_sampler(net.clone(), claude_running.clone());
 
     std::thread::spawn(move || {
         let mut sys = System::new();
@@ -119,17 +128,23 @@ pub fn spawn(sink: std::sync::mpsc::Sender<MascotEvent>) {
         let mut was_front = false;
         let send = |event: &'static str| sink.send(MascotEvent::new("desktop", event, now_ms())).is_ok();
 
+        let refresh = ProcessRefreshKind::nothing().with_cpu().with_exe(sysinfo::UpdateKind::OnlyIfNotSet);
+        let mut known: Vec<Pid> = Vec::new();
+        let mut tick: u32 = 0;
         loop {
-            sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing().with_cpu().with_exe(sysinfo::UpdateKind::OnlyIfNotSet));
-            let mut running = false;
-            let mut cpu = 0.0f32;
-            for p in sys.processes().values() {
-                let Some(exe) = p.exe().and_then(|e| e.to_str()) else { continue };
-                if exe.contains(CLAUDE_APP_DIR) {
-                    cpu += p.cpu_usage();
-                    running |= exe.ends_with(CLAUDE_MAIN_EXE);
-                }
+            // Full process scan every FULL_SCAN_EVERY ticks; in between, refresh only Claude's processes.
+            if tick % FULL_SCAN_EVERY == 0 {
+                sys.refresh_processes_specifics(ProcessesToUpdate::All, true, refresh);
+            } else if !known.is_empty() {
+                sys.refresh_processes_specifics(ProcessesToUpdate::Some(&known), true, refresh);
             }
+            tick = tick.wrapping_add(1);
+            let scan = scan_claude(sys.processes().iter().filter_map(|(pid, p)| {
+                Some((pid.as_u32(), p.exe()?.to_str()?, p.cpu_usage()))
+            }));
+            known = scan.pids.iter().map(|p| Pid::from_u32(*p)).collect();
+            let (running, cpu) = (scan.running, scan.cpu);
+            claude_running.store(running, Ordering::Relaxed);
 
             let ok = match (was_running, running) {
                 (Some(false), true) => send("app_launch"),
@@ -166,6 +181,27 @@ pub fn spawn(sink: std::sync::mpsc::Sender<MascotEvent>) {
     });
 }
 
+#[derive(Debug, Default, PartialEq)]
+pub struct ClaudeScan {
+    pub running: bool,
+    pub pids: Vec<u32>,
+    pub cpu: f32,
+}
+
+/// Picks Claude Desktop's processes out of `(pid, exe path, cpu %)` tuples.
+pub fn scan_claude<'a>(procs: impl Iterator<Item = (u32, &'a str, f32)>) -> ClaudeScan {
+    let mut s = ClaudeScan::default();
+    for (pid, exe, cpu) in procs {
+        if exe.contains(CLAUDE_APP_DIR) {
+            s.pids.push(pid);
+            s.cpu += cpu;
+            s.running |= exe.ends_with(CLAUDE_MAIN_EXE);
+        }
+    }
+    s.pids.sort_unstable();
+    s
+}
+
 /// Parses `nettop -P -d -x -J bytes_in,bytes_out` output. Each block starts with
 /// a `,bytes_in,bytes_out,` header; the first block is cumulative and skipped.
 #[derive(Debug, Default)]
@@ -196,6 +232,31 @@ impl NettopParser {
     pub fn finish(&mut self) -> Option<u64> {
         let last = std::mem::take(&mut self.current);
         (self.blocks_seen >= 2).then_some(last)
+    }
+}
+
+#[cfg(test)]
+mod scan_tests {
+    use super::*;
+
+    #[test]
+    fn finds_claude_processes_and_sums_their_cpu() {
+        let procs = [
+            (1, "/Applications/Claude.app/Contents/MacOS/Claude", 2.0),
+            (2, "/Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer)", 3.5),
+            (3, "/Applications/Claude Puppet.app/Contents/MacOS/claude-puppet", 50.0),
+            (4, "/Applications/Safari.app/Contents/MacOS/Safari", 20.0),
+        ];
+        let s = scan_claude(procs.iter().map(|(p, e, c)| (*p, *e, *c)));
+        assert!(s.running);
+        assert_eq!(s.pids, vec![1, 2]);
+        assert_eq!(s.cpu, 5.5);
+    }
+
+    #[test]
+    fn helpers_without_the_main_app_do_not_count_as_running() {
+        let procs = [(2, "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper", 1.0)];
+        assert!(!scan_claude(procs.iter().map(|(p, e, c)| (*p, *e, *c))).running);
     }
 }
 

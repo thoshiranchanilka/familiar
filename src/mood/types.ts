@@ -28,7 +28,7 @@ export interface MascotState {
   since: number;
   model?: string;
   usage: Usage;
-  sessions: Record<string, { working: boolean; startedAt: number }>;
+  sessions: Record<string, { working: boolean; startedAt: number; lastEventAt: number }>;
   desktopActive: boolean;
   desktopStartedAt: number;
   greetingUntil: number;

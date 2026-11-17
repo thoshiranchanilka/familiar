@@ -93,6 +93,17 @@ describe("mood reducer", () => {
     expect(s.mood).toBe("greeting");
   });
 
+  test("an interrupted session (no Stop) stops counting as working after 5 quiet minutes", () => {
+    const s = run(initialState(0), code("prompt", 0), tick(300_001));
+    expect(s.mood).not.toBe("thinking");
+    expect(s.mood).not.toBe("working");
+  });
+
+  test("tool events keep a long agentic run alive", () => {
+    const s = run(initialState(0), code("prompt", 0), code("tool", 240_000), tick(360_000));
+    expect(s.mood).toBe("thinking");
+  });
+
   test("session_end forgets the session", () => {
     const s = run(initialState(0), code("prompt", 0), code("session_end", 5000), tick(10_000));
     expect(s.sessions).toEqual({});

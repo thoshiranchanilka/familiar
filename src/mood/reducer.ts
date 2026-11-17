@@ -1,5 +1,5 @@
 import {
-  DONE_HOLD_MS, ERROR_HOLD_MS, GREETING_MS, MIN_MOOD_MS, SLEEP_AFTER_MS,
+  DONE_HOLD_MS, ERROR_HOLD_MS, GREETING_MS, MIN_MOOD_MS, SESSION_FORGET_MS, SESSION_STALE_MS, SLEEP_AFTER_MS,
   THINKING_AFTER_CODE_MS, THINKING_AFTER_DESKTOP_MS,
 } from "./config";
 import type { MascotEvent, MascotState, Mood } from "./types";
@@ -24,7 +24,7 @@ export function initialState(now: number): MascotState {
 /** The mood the facts call for right now, before anti-flicker. Priority: error > code > desktop > transient > idle/sleep. */
 function targetMood(s: MascotState, now: number): Mood {
   if (s.errorUntil > now) return "error";
-  const working = Object.values(s.sessions).filter((x) => x.working);
+  const working = Object.values(s.sessions).filter((x) => x.working && now - x.lastEventAt < SESSION_STALE_MS);
   if (working.length > 0) {
     const latest = Math.max(...working.map((x) => x.startedAt));
     return now - latest >= THINKING_AFTER_CODE_MS ? "thinking" : "working";
@@ -42,6 +42,7 @@ function applyEvent(s: MascotState, e: MascotEvent): MascotState {
   const t = e.ts;
   const id = e.sessionId ?? "_";
   const sessions = { ...s.sessions };
+  for (const [k, v] of Object.entries(sessions)) if (t - v.lastEventAt >= SESSION_FORGET_MS) delete sessions[k];
   let next: MascotState = { ...s, sessions };
   if (e.event !== "status") next.lastActivityAt = t;
 
@@ -51,11 +52,13 @@ function applyEvent(s: MascotState, e: MascotEvent): MascotState {
       next.greetingUntil = t + GREETING_MS;
       break;
     case "prompt":
-      sessions[id] = { working: true, startedAt: t };
+      sessions[id] = { working: true, startedAt: t, lastEventAt: t };
       next.errorUntil = 0; // the user moved on
       break;
     case "tool":
-      if (!sessions[id]?.working) sessions[id] = { working: true, startedAt: t };
+      sessions[id] = sessions[id]?.working
+        ? { ...sessions[id], lastEventAt: t }
+        : { working: true, startedAt: t, lastEventAt: t };
       break;
     case "stop":
       if (sessions[id]) sessions[id] = { ...sessions[id], working: false };

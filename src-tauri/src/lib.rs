@@ -70,9 +70,10 @@ fn start_event_bridge(app: &tauri::AppHandle) {
         }
     };
     let (tx, rx) = std::sync::mpsc::channel();
-    desktop_monitor::spawn(tx.clone());
-    match server::start(token, server::DEFAULT_PORT, tx) {
+    match server::start(token, server::DEFAULT_PORT, tx.clone()) {
         Ok(handle) => {
+            // Only the instance that owns the port watches Claude Desktop.
+            desktop_monitor::spawn(tx);
             app.manage(handle); // keep it alive for the app's lifetime
             let app = app.clone();
             std::thread::spawn(move || {

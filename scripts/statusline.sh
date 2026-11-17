@@ -12,5 +12,8 @@ if [ -n "$token" ]; then
 fi
 if [ -s "$dir/prev-statusline" ]; then
   printf '%s' "$input" | sh -c "$(cat "$dir/prev-statusline")"
+else
+  model=$(printf '%s' "$input" | sed -n 's/.*"display_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+  if [ -n "$model" ]; then echo "🔥 Ember · $model"; else echo "🔥 Ember"; fi
 fi
 exit 0

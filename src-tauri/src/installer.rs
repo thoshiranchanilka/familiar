@@ -65,13 +65,18 @@ fn parse(bytes: &[u8]) -> Result<Map<String, Value>, InstallError> {
 }
 
 /// Writes via a temp file and rename so a crash never leaves a half-written file.
+/// Follows a symlinked settings.json (e.g. from a dotfiles repo) and keeps the file's permissions.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), InstallError> {
-    if let Some(dir) = path.parent() {
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if let Some(dir) = target.parent() {
         std::fs::create_dir_all(dir).map_err(io)?;
     }
-    let tmp = path.with_extension("json.puppet-tmp");
+    let tmp = target.with_extension("json.puppet-tmp");
     std::fs::write(&tmp, bytes).map_err(io)?;
-    std::fs::rename(&tmp, path).map_err(io)
+    if let Ok(meta) = std::fs::metadata(&target) {
+        std::fs::set_permissions(&tmp, meta.permissions()).map_err(io)?;
+    }
+    std::fs::rename(&tmp, &target).map_err(io)
 }
 
 fn pretty(m: &Map<String, Value>) -> Vec<u8> {
@@ -80,8 +85,12 @@ fn pretty(m: &Map<String, Value>) -> Vec<u8> {
     s.into_bytes()
 }
 
+fn is_our_hook(hook: &Value, url: &str) -> bool {
+    hook["url"] == url
+}
+
 fn is_our_group(group: &Value, url: &str) -> bool {
-    group["hooks"].as_array().is_some_and(|hs| hs.iter().any(|h| h["url"] == url))
+    group["hooks"].as_array().is_some_and(|hs| hs.iter().any(|h| is_our_hook(h, url)))
 }
 
 fn is_our_status_line(v: &Value) -> bool {
@@ -97,7 +106,8 @@ pub fn install(home: &Path, token: &str, port: u16) -> Result<InstallReport, Ins
     // Back up the pre-install file once; a re-install keeps the first backup.
     let backup = dir.join("settings.backup.json");
     let absent = dir.join("settings.absent");
-    if !is_installed(home) {
+    let has_our_status_line = settings.get("statusLine").is_some_and(is_our_status_line);
+    if !is_installed(home) && !has_our_status_line {
         match &raw {
             Some(b) => {
                 std::fs::write(&backup, b).map_err(io)?;
@@ -112,10 +122,10 @@ pub fn install(home: &Path, token: &str, port: u16) -> Result<InstallReport, Ins
 
     // Hooks: one HTTP group per event, updated in place on re-install.
     let url = hook_url(port);
-    let ours = json!({ "hooks": [{
+    let our_hook = json!({
         "type": "http", "url": url, "timeout": 2,
         "headers": { "Authorization": format!("Bearer {token}") }
-    }]});
+    });
     let hooks = settings.entry("hooks").or_insert_with(|| json!({}));
     if !hooks.is_object() {
         return Err(InstallError::InvalidSettings("\"hooks\" is not an object".into()));
@@ -126,10 +136,16 @@ pub fn install(home: &Path, token: &str, port: u16) -> Result<InstallReport, Ins
         let Some(arr) = list.as_array_mut() else {
             return Err(InstallError::InvalidSettings(format!("hooks.{ev} is not a list")));
         };
-        match arr.iter_mut().find(|g| is_our_group(g, &url)) {
-            Some(g) => *g = ours.clone(),
+        // Replace only our own entry, leaving any hooks the user added to the same group.
+        let existing = arr
+            .iter_mut()
+            .filter_map(|g| g["hooks"].as_array_mut())
+            .flat_map(|hs| hs.iter_mut())
+            .find(|h| is_our_hook(h, &url));
+        match existing {
+            Some(h) => *h = our_hook.clone(),
             None => {
-                arr.push(ours.clone());
+                arr.push(json!({ "hooks": [our_hook.clone()] }));
                 hooks_added += 1;
             }
         }
@@ -170,7 +186,12 @@ pub fn uninstall(home: &Path) -> Result<(), InstallError> {
         if let Some(hooks) = settings.get_mut("hooks").and_then(Value::as_object_mut) {
             for list in hooks.values_mut() {
                 if let Some(arr) = list.as_array_mut() {
-                    arr.retain(|g| !is_our_group(g, &url));
+                    for g in arr.iter_mut() {
+                        if let Some(hs) = g["hooks"].as_array_mut() {
+                            hs.retain(|h| !is_our_hook(h, &url));
+                        }
+                    }
+                    arr.retain(|g| !g["hooks"].as_array().is_some_and(Vec::is_empty));
                 }
             }
             hooks.retain(|_, v| !v.as_array().is_some_and(Vec::is_empty));
@@ -179,9 +200,11 @@ pub fn uninstall(home: &Path) -> Result<(), InstallError> {
             settings.remove("hooks");
         }
         if settings.get("statusLine").is_some_and(is_our_status_line) {
-            match original.get("statusLine") {
-                Some(prev) => settings.insert("statusLine".into(), prev.clone()),
-                None => settings.remove("statusLine"),
+            let saved_cmd = std::fs::read_to_string(dir.join("prev-statusline")).ok().filter(|c| !c.is_empty());
+            match (original.get("statusLine").filter(|v| !is_our_status_line(v)), saved_cmd) {
+                (Some(prev), _) => settings.insert("statusLine".into(), prev.clone()),
+                (None, Some(cmd)) => settings.insert("statusLine".into(), json!({ "type": "command", "command": cmd })),
+                (None, None) => settings.remove("statusLine"),
             };
         }
 
@@ -341,6 +364,105 @@ mod tests {
         uninstall(&h).unwrap();
         let after = read_json(&h);
         assert_eq!(after, json!({"model":"opus","theme":"dark"}));
+    }
+
+    fn add_user_hook_to_our_stop_group(h: &Path) {
+        let mut v = read_json(h);
+        let groups = v["hooks"]["Stop"].as_array_mut().unwrap();
+        let ours = groups.iter_mut().find(|g| g["hooks"][0]["url"] == URL).unwrap();
+        ours["hooks"].as_array_mut().unwrap().push(json!({"type":"command","command":"say done"}));
+        write_settings(h, &serde_json::to_string(&v).unwrap());
+    }
+    fn has_user_hook(v: &Value) -> bool {
+        v["hooks"]["Stop"].as_array().is_some_and(|gs| gs.iter().any(|g| {
+            g["hooks"].as_array().is_some_and(|hs| hs.iter().any(|x| x["command"] == "say done"))
+        }))
+    }
+
+    #[test]
+    fn reinstall_keeps_user_hooks_added_to_our_group() {
+        let h = home("sharedgroup-re");
+        install(&h, "tok", PORT).unwrap();
+        add_user_hook_to_our_stop_group(&h);
+        install(&h, "tok2", PORT).unwrap();
+        let v = read_json(&h);
+        assert!(has_user_hook(&v));
+        assert_eq!(our_groups(&v, "Stop"), 1);
+    }
+
+    #[test]
+    fn uninstall_keeps_user_hooks_added_to_our_group() {
+        let h = home("sharedgroup-un");
+        install(&h, "tok", PORT).unwrap();
+        add_user_hook_to_our_stop_group(&h);
+        uninstall(&h).unwrap();
+        let v = read_json(&h);
+        assert!(has_user_hook(&v));
+        assert!(!is_installed(&h));
+    }
+
+    #[test]
+    fn uninstall_without_backup_restores_previous_status_line() {
+        let h = home("nobackup");
+        write_settings(&h, r#"{"statusLine":{"type":"command","command":"echo hi"}}"#);
+        install(&h, "tok", PORT).unwrap();
+        std::fs::remove_file(h.join(".claude-mascot/settings.backup.json")).unwrap();
+        uninstall(&h).unwrap();
+        assert_eq!(read_json(&h)["statusLine"]["command"], "echo hi");
+    }
+
+    #[test]
+    fn reconnect_after_hooks_were_removed_keeps_the_real_backup() {
+        let h = home("stale");
+        write_settings(&h, r#"{"statusLine":{"type":"command","command":"echo hi"}}"#);
+        install(&h, "tok", PORT).unwrap();
+        let mut v = read_json(&h);
+        v.as_object_mut().unwrap().remove("hooks");
+        write_settings(&h, &serde_json::to_string(&v).unwrap());
+        install(&h, "tok", PORT).unwrap();
+        uninstall(&h).unwrap();
+        assert_eq!(read_json(&h)["statusLine"]["command"], "echo hi");
+    }
+
+    #[test]
+    fn writes_through_a_symlink_and_keeps_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let h = home("symlink");
+        let real = h.join("dotfiles-settings.json");
+        std::fs::write(&real, r#"{"model":"opus"}"#).unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::os::unix::fs::symlink(&real, settings_path(&h)).unwrap();
+        install(&h, "tok", PORT).unwrap();
+        assert!(std::fs::symlink_metadata(settings_path(&h)).unwrap().file_type().is_symlink());
+        assert!(std::fs::read_to_string(&real).unwrap().contains("statusLine"));
+        assert_eq!(std::fs::metadata(&real).unwrap().permissions().mode() & 0o777, 0o600);
+        uninstall(&h).unwrap();
+        assert!(std::fs::symlink_metadata(settings_path(&h)).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_to_string(&real).unwrap(), r#"{"model":"opus"}"#);
+    }
+
+    #[test]
+    fn status_line_script_prints_the_model_when_there_is_no_previous_command() {
+        let h = home("script-own");
+        install(&h, "tok", PORT).unwrap();
+        let out = run_script(&h, br#"{"model":{"id":"claude-x","display_name":"Opus 5.5"},"cwd":"/p"}"#);
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "🔥 Ember · Opus 5.5");
+    }
+
+    fn run_script(h: &Path, input: &[u8]) -> std::process::Output {
+        std::process::Command::new("sh")
+            .arg(h.join(".claude-mascot/statusline.sh"))
+            .env("HOME", h)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut c| {
+                use std::io::Write;
+                c.stdin.take().unwrap().write_all(input)?;
+                c.wait_with_output()
+            })
+            .unwrap()
     }
 
     #[test]
