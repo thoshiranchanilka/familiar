@@ -5,6 +5,7 @@ pub mod installer;
 pub mod desktop_monitor;
 pub mod settings;
 pub mod layout;
+pub mod power;
 
 use layout::Rect;
 use settings::{Corner, Settings};
@@ -253,7 +254,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(BridgeError(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
-            bridge_error, mascot_install, mascot_uninstall, mascot_status, get_settings
+            bridge_error, mascot_install, mascot_uninstall, mascot_status, get_settings,
+            power::low_power
         ])
         .setup(|app| {
             // No Dock icon and no app switcher entry: the mascot is an accessory overlay.
@@ -276,6 +278,7 @@ pub fn run() {
             window.set_ignore_cursor_events(true)?;
             apply_settings(&handle);
             spawn_hover_watch(handle.clone());
+            power::spawn_watch(handle.clone());
             start_event_bridge(&handle);
             Ok(())
         })

@@ -6,8 +6,12 @@ import { initialState, nextDeadline, reduce } from "../mood/reducer";
 import type { MascotEvent, MascotState, Mood } from "../mood/types";
 import { formatUsage } from "./usagePanel";
 import { createMascot } from "./mascot/mascot";
+import { getMascot, type Animation } from "./mascot/defs";
 
-interface Settings { corner: "br" | "bl" | "tr" | "tl"; size: number; autoHide: boolean; hidden: boolean }
+interface Settings {
+  corner: "br" | "bl" | "tr" | "tl"; size: number; autoHide: boolean; hidden: boolean;
+  mascot: string; animation: Animation;
+}
 
 const NOTICE_MS = 5000;
 const ONBOARDING_MS = 20000;
@@ -56,7 +60,7 @@ const LABELS: Record<Mood, string> = {
 };
 
 let state: MascotState = initialState(Date.now());
-let settings: Settings = { corner: "br", size: 128, autoHide: false, hidden: false };
+let settings: Settings = { corner: "br", size: 128, autoHide: false, hidden: false, mascot: "ember", animation: "gentle" };
 let serverError = "";
 let noticeText = "";
 let noticeUntil = 0;
@@ -83,6 +87,8 @@ function render() {
   const asleepHidden = settings.autoHide && state.mood === "sleeping" && !hovering;
   stage.classList.toggle("gone", settings.hidden || asleepHidden);
   mascot.style.width = mascot.style.height = `${settings.size}px`;
+  ember.setMascot(getMascot(settings.mascot));
+  ember.setAnimation(settings.animation);
   ember.setMood(state.mood);
   ember.setVisible(!(settings.hidden || asleepHidden));
   notice.textContent = serverError || (noticeUntil > now ? noticeText : "") || LABELS[state.mood];
@@ -137,6 +143,8 @@ listen<Settings>("mascot-settings", (e) => { settings = e.payload; render(); });
 listen<boolean>("mascot-hover", (e) => { hovering = e.payload; render(); });
 listen<string>("mascot-notice", (e) => showNotice(e.payload));
 invoke<string | null>("bridge_error").then((m) => { if (m) { serverError = m; render(); } });
+listen<boolean>("mascot-low-power", (e) => ember.setLowPower(e.payload));
+invoke<boolean>("low_power").then((on) => ember.setLowPower(on));
 invoke<Settings>("get_settings").then((s) => { settings = s; render(); });
 schedule();
 render();
