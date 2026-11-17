@@ -408,6 +408,81 @@ mod tests {
     }
 
     #[test]
+    fn hook_script_is_fast_on_huge_payloads() {
+        let h = home("hook-huge");
+        install(&h, "tok", PORT).unwrap();
+        std::fs::write(h.join(".claude-mascot/token"), "tok").unwrap();
+        let huge = format!(r#"{{"session_id":"s1","hook_event_name":"PostToolUse","tool_response":"{}"}}"#, "x".repeat(16_000_000));
+        let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let (out, took) = run_hook(&h, free, huge.as_bytes());
+        assert!(out.status.success());
+        assert!(took < std::time::Duration::from_millis(600), "took {took:?}");
+    }
+
+    #[test]
+    fn hook_script_handles_json_that_plutil_rejects() {
+        let h = home("hook-nul");
+        install(&h, "tok", PORT).unwrap();
+        std::fs::write(h.join(".claude-mascot/token"), "tok").unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let input = r#"{"session_id":"s-2","hook_event_name":"PostToolUse","tool_response":"bin\u0000ary \ud800 cut"}"#;
+        let (out, _) = run_hook(&h, port, input.as_bytes());
+        assert!(out.status.success());
+        let req = read_request(&listener);
+        assert!(req.contains(r#""hook_event_name":"PostToolUse""#), "{req}");
+    }
+
+    #[test]
+    fn hook_script_has_sent_its_event_before_it_exits() {
+        // Events must arrive in order: the request is on the wire before Claude Code moves on.
+        let h = home("hook-order");
+        install(&h, "tok", PORT).unwrap();
+        std::fs::write(h.join(".claude-mascot/token"), "tok").unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (out, _) = run_hook(&h, port, br#"{"session_id":"s-3","hook_event_name":"Stop"}"#);
+        assert!(out.status.success());
+        listener.set_nonblocking(true).unwrap();
+        assert!(listener.accept().is_ok(), "no connection was made before the script exited");
+    }
+
+    #[test]
+    fn hook_script_drains_stdin_even_without_a_token() {
+        let h = home("hook-notoken");
+        install(&h, "tok", PORT).unwrap();
+        let _ = std::fs::remove_file(h.join(".claude-mascot/token"));
+        let big = format!(r#"{{"hook_event_name":"Stop","x":"{}"}}"#, "y".repeat(1_000_000));
+        // run_hook unwraps the stdin write, so an early exit (EPIPE) fails the test
+        let (out, _) = run_hook(&h, 9, big.as_bytes());
+        assert!(out.status.success());
+    }
+
+    fn read_request(listener: &std::net::TcpListener) -> String {
+        use std::io::{Read, Write};
+        listener.set_nonblocking(true).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let mut conn = loop {
+            match listener.accept() {
+                Ok((c, _)) => break c,
+                Err(_) if std::time::Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(20)),
+                Err(e) => panic!("no request arrived: {e}"),
+            }
+        };
+        conn.set_nonblocking(false).unwrap();
+        conn.set_read_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
+        let mut req = Vec::new();
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = conn.read(&mut buf) {
+            if n == 0 { break; }
+            req.extend_from_slice(&buf[..n]);
+            if String::from_utf8_lossy(&req).contains('}') { break; }
+        }
+        let _ = conn.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+        String::from_utf8_lossy(&req).into_owned()
+    }
+
+    #[test]
     fn hook_script_sends_only_event_session_and_model() {
         use std::io::Read;
         let h = home("hook-send");

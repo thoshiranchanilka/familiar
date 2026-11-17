@@ -43,7 +43,8 @@ Connecting adds a few entries to `~/.claude/settings.json`: hooks that report ev
 
 Everything stays on your Mac. The app listens only on `127.0.0.1`, and requests must carry a random token stored in `~/.claude-mascot/token`.
 
-The Claude Code hook forwards only the event name, session id and model name. It never sends prompts, replies, file contents or tool output. The status line forwards Claude Code's status data: model, context use and rate limits.
+- **Hook:** forwards only the event name, session id and model name. It never sends prompts, replies, file contents or tool output.
+- **Status line:** forwards Claude Code's status data to the local app. That data includes the working folder, session details, cost and rate limits; the app uses only the model, context use and rate limits, and keeps nothing on disk.
 
 ## Power use
 
@@ -52,9 +53,9 @@ The mascot is designed to be near-zero when idle:
 - It redraws only when the picture changes.
 - In the default **Gentle** level it animates only while Claude is busy. Otherwise it blinks every 12 s, and while asleep its Zs drift once every 4 s.
 - It switches to still frames in Low Power Mode.
-- It doesn't poll while hidden.
+- While hidden it doesn't draw or track the cursor.
 
-Measured idle use (MacBook with M-series chip, Gentle animation, 30 s samples, three runs):
+Measured idle use (MacBook with M-series chip, Gentle animation, Claude Desktop closed, 30 s samples, three runs):
 **0.07–0.17% CPU** and a macOS energy score of **0.07–0.17**, about what a menu-bar clock uses.
 While Claude is working, the mascot animates at 8 frames per second. That's small next to the terminal or app streaming the reply.
 

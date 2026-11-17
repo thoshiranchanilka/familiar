@@ -133,11 +133,15 @@ pub fn spawn(sink: std::sync::mpsc::Sender<MascotEvent>) {
             let since_scan = last_full_scan.map_or(u64::MAX, |t| t.elapsed().as_secs());
             let plan = plan_tick(running, since_scan);
             if running {
-                if plan.full_scan || known.is_empty() {
-                    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, refresh);
-                    last_full_scan = Some(std::time::Instant::now());
-                } else {
-                    sys.refresh_processes_specifics(ProcessesToUpdate::Some(&known), true, refresh);
+                match refresh_for(plan, known.is_empty()) {
+                    Refresh::Everything => {
+                        sys.refresh_processes_specifics(ProcessesToUpdate::All, true, refresh);
+                        last_full_scan = Some(std::time::Instant::now());
+                    }
+                    Refresh::KnownOnly => {
+                        sys.refresh_processes_specifics(ProcessesToUpdate::Some(&known), true, refresh);
+                    }
+                    Refresh::Nothing => {}
                 }
                 let scan = scan_claude(sys.processes().iter().filter_map(|(pid, p)| {
                     Some((pid.as_u32(), p.exe()?.to_str()?, p.cpu_usage()))
@@ -169,6 +173,24 @@ pub fn plan_tick(running: bool, secs_since_full_scan: u64) -> TickPlan {
         TickPlan { delay: RUNNING_SAMPLE_EVERY, full_scan: secs_since_full_scan >= HELPER_RESCAN_SECS }
     } else {
         TickPlan { delay: CLOSED_CHECK_EVERY, full_scan: false }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Refresh {
+    Everything,
+    KnownOnly,
+    Nothing,
+}
+
+/// Which processes to refresh this tick. A whole-system scan happens only on the plan's schedule.
+pub fn refresh_for(plan: TickPlan, known_empty: bool) -> Refresh {
+    if plan.full_scan {
+        Refresh::Everything
+    } else if known_empty {
+        Refresh::Nothing
+    } else {
+        Refresh::KnownOnly
     }
 }
 
@@ -213,6 +235,20 @@ mod plan_tests {
     #[test]
     fn running_claude_rescans_for_new_helpers_every_30_s() {
         assert_eq!(plan_tick(true, 30), TickPlan { delay: Duration::from_secs(1), full_scan: true });
+    }
+}
+
+#[cfg(test)]
+mod refresh_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn full_scan_only_when_planned_even_if_no_helpers_were_found() {
+        let plan = TickPlan { delay: Duration::from_secs(1), full_scan: false };
+        assert_eq!(refresh_for(plan, true), Refresh::Nothing);
+        assert_eq!(refresh_for(plan, false), Refresh::KnownOnly);
+        assert_eq!(refresh_for(TickPlan { full_scan: true, ..plan }, true), Refresh::Everything);
     }
 }
 

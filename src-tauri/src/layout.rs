@@ -51,7 +51,7 @@ pub fn hover_delay(distance_px: f64, scale: f64) -> std::time::Duration {
     if distance_px < NEAR_LOGICAL_PX * scale {
         std::time::Duration::from_millis(250)
     } else {
-        std::time::Duration::from_millis(1000)
+        std::time::Duration::from_millis(500)
     }
 }
 
@@ -73,7 +73,7 @@ mod tests {
         // distances are physical px; scale 2 means 200 logical px = 400 physical px
         assert_eq!(hover_delay(0.0, 2.0), Duration::from_millis(250));
         assert_eq!(hover_delay(399.0, 2.0), Duration::from_millis(250));
-        assert_eq!(hover_delay(401.0, 2.0), Duration::from_millis(1000));
+        assert_eq!(hover_delay(401.0, 2.0), Duration::from_millis(500));
     }
 
     const AREA: Rect = Rect { x: 0, y: 50, w: 3000, h: 2000 };
