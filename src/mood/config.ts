@@ -9,3 +9,7 @@ export const ERROR_HOLD_MS = 2_000;
 export const SESSION_STALE_MS = 300_000;
 /** Sessions with no events for this long are forgotten. */
 export const SESSION_FORGET_MS = 3_600_000;
+/** A session with no hook events for this long leaves (the mascot hides once none are left). */
+export const PRESENT_IDLE_MS = 300_000;
+/** …unless it is mid-task: a long tool run fires no events, so working sessions get longer. */
+export const PRESENT_WORKING_MS = 1_800_000;

@@ -2,6 +2,7 @@ import {
   DONE_HOLD_MS, ERROR_HOLD_MS, GREETING_MS, MIN_MOOD_MS, SESSION_FORGET_MS, SESSION_STALE_MS, SLEEP_AFTER_MS,
   THINKING_AFTER_CODE_MS,
 } from "./config";
+import { presenceDeadline } from "./presence";
 import type { MascotEvent, MascotState, Mood } from "./types";
 
 export type ReducerInput = MascotEvent | { tick: number };
@@ -39,7 +40,13 @@ function applyEvent(s: MascotState, e: MascotEvent): MascotState {
   const sessions = { ...s.sessions };
   for (const [k, v] of Object.entries(sessions)) if (t - v.lastEventAt >= SESSION_FORGET_MS) delete sessions[k];
   let next: MascotState = { ...s, sessions };
-  if (e.event !== "status") next.lastActivityAt = t;
+  if (e.event !== "status") {
+    next.lastActivityAt = t;
+    // Any hook event creates the session (the app may start mid-session) and keeps it present.
+    sessions[id] = sessions[id]
+      ? { ...sessions[id], lastEventAt: t }
+      : { working: false, startedAt: t, lastEventAt: t };
+  }
 
   switch (e.event) {
     case "session_start":
@@ -50,20 +57,18 @@ function applyEvent(s: MascotState, e: MascotEvent): MascotState {
       next.errorUntil = 0; // the user moved on
       break;
     case "tool":
-      sessions[id] = sessions[id]?.working
-        ? { ...sessions[id], lastEventAt: t }
-        : { working: true, startedAt: t, lastEventAt: t };
+      if (!sessions[id].working) sessions[id] = { working: true, startedAt: t, lastEventAt: t };
       break;
     case "stop":
-      if (sessions[id]) sessions[id] = { ...sessions[id], working: false };
+      sessions[id] = { ...sessions[id], working: false };
       next.doneUntil = t + DONE_HOLD_MS;
       break;
     case "error":
-      if (sessions[id]) sessions[id] = { ...sessions[id], working: false };
+      sessions[id] = { ...sessions[id], working: false };
       next.errorUntil = t + ERROR_HOLD_MS;
       break;
     case "attention":
-      if (sessions[id]) sessions[id] = { ...sessions[id], working: false };
+      sessions[id] = { ...sessions[id], working: false };
       next.greetingUntil = t + GREETING_MS;
       break;
     case "session_end":
@@ -90,6 +95,8 @@ export function nextDeadline(s: MascotState, now: number): number | undefined {
     candidates.push(x.startedAt + THINKING_AFTER_CODE_MS, x.lastEventAt + SESSION_STALE_MS);
   }
   if (s.mood !== "sleeping") candidates.push(s.lastActivityAt + SLEEP_AFTER_MS);
+  const leave = presenceDeadline(s, now);
+  if (leave !== undefined) candidates.push(leave);
   const future = candidates.filter((t) => t > now);
   return future.length ? Math.min(...future) : undefined;
 }
