@@ -74,6 +74,13 @@ fn start_event_bridge(app: &tauri::AppHandle) {
             return;
         }
     };
+    // Earlier versions used HTTP hooks, which print errors in Claude Code whenever the
+    // app is closed and receive full tool payloads. Switch them to the script hook.
+    if installer::needs_migration(&home) {
+        if let Err(e) = installer::install(&home, &token, server::DEFAULT_PORT) {
+            report_bridge_error(app, install_error_text(e));
+        }
+    }
     let (tx, rx) = std::sync::mpsc::channel();
     match server::start(token, server::DEFAULT_PORT, tx.clone()) {
         Ok(handle) => {
