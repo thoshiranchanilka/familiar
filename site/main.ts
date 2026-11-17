@@ -78,7 +78,8 @@ let demoTimer: ReturnType<typeof setTimeout> | undefined;
 let demoOn = false;
 
 function paintTerm() {
-  term.innerHTML = [...lines, `<span class="p">${lines.length && step < SCRIPT.length - 1 ? "&gt;" : "$"}</span> <span class="caret"></span>`].join("\n");
+  const prompt = `<span class="p">${lines.length && step < SCRIPT.length - 1 ? "&gt;" : "$"}</span> <span class="caret"></span>`;
+  term.innerHTML = [...lines, prompt].map((l) => `<div>${l}</div>`).join("");
 }
 
 function setShown(show: boolean) {
@@ -169,7 +170,7 @@ function drawField(t: number) {
     const a = base * flicker;
     if (a < 0.1) continue;
     const special = hash(i + 999);
-    fctx.fillStyle = special > 0.985 ? `rgba(238,240,74,${a})` : special > 0.975 ? `rgba(226,87,76,${a})` : `rgba(235,235,228,${a * 0.85})`;
+    fctx.fillStyle = special > 0.975 ? `rgba(239,106,58,${a})` : special > 0.965 ? `rgba(255,209,102,${a * 0.8})` : `rgba(235,235,228,${a * 0.85})`;
     const s = a > 0.6 ? 5 : a > 0.35 ? 4 : 2;
     fctx.fillRect(x * CELL + (CELL - s) / 2, y * CELL + (CELL - s) / 2, s, s);
   }
