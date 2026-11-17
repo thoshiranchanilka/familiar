@@ -33,6 +33,15 @@
       <section>
         <h2>Position</h2>
         <div class="corners" id="corners" role="radiogroup" aria-label="Corner"></div>
+        <button id="advanced-toggle" type="button" class="quiet" aria-expanded="false" aria-controls="advanced">Advanced…</button>
+        <div id="advanced" class="advanced" hidden>
+          <p class="muted small">Tip: you can also drag the mascot itself anywhere on screen. It remembers the spot.</p>
+          <label class="slider"><span id="offset-x-label">From the side</span>
+            <input id="offset-x" type="range" min="0" max="0" step="1" /><output id="offset-x-value"></output></label>
+          <label class="slider"><span id="offset-y-label">From the edge</span>
+            <input id="offset-y" type="range" min="0" max="0" step="1" /><output id="offset-y-value"></output></label>
+          <button id="offset-reset" type="button" class="quiet">Reset to corner</button>
+        </div>
       </section>
 
       <section>

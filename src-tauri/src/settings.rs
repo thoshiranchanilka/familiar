@@ -29,6 +29,10 @@ pub struct Settings {
     /// mascot size in logical px
     pub size: u32,
     pub hidden: bool,
+    /// Extra distance (logical px) from the corner's side edge and top/bottom edge,
+    /// set by the Advanced position sliders or by dragging the mascot.
+    pub offset_x: u32,
+    pub offset_y: u32,
     /// Set once Open at login has been turned on for the first time, so it only happens once.
     pub login_set_up: bool,
 }
@@ -44,6 +48,8 @@ impl Default for Settings {
             animation: Animation::Gentle,
             size: 128,
             hidden: false,
+            offset_x: 0,
+            offset_y: 0,
             login_set_up: false,
         }
     }
@@ -74,6 +80,8 @@ pub fn load(home: &Path) -> Settings {
     take(&obj, "size", &mut s.size);
     take(&obj, "hidden", &mut s.hidden);
     take(&obj, "loginSetUp", &mut s.login_set_up);
+    take(&obj, "offsetX", &mut s.offset_x);
+    take(&obj, "offsetY", &mut s.offset_y);
     s.size = s.size.clamp(MIN_SIZE, MAX_SIZE);
     s
 }
@@ -200,6 +208,18 @@ mod tests {
         let s = Settings { login_set_up: true, ..Settings::default() };
         save(&h, &s).unwrap();
         assert!(load(&h).login_set_up);
+    }
+
+    #[test]
+    fn offsets_round_trip_and_default_to_the_corner() {
+        let h = home("offsets");
+        assert_eq!((load(&h).offset_x, load(&h).offset_y), (0, 0));
+        let s = Settings { offset_x: 140, offset_y: 60, ..Settings::default() };
+        save(&h, &s).unwrap();
+        assert_eq!(load(&h), s);
+        std::fs::write(h.join(".claude-mascot/settings.json"), r#"{"offsetX":-5,"offsetY":"x","corner":"tl"}"#).unwrap();
+        let s = load(&h);
+        assert_eq!((s.offset_x, s.offset_y, s.corner), (0, 0, Corner::Tl));
     }
 
     #[test]

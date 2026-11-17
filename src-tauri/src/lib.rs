@@ -149,23 +149,85 @@ fn get_settings(app: AppHandle) -> Settings {
     current_settings(&app)
 }
 
-/// Moves the window into the chosen corner of the screen's usable area (above the Dock, below the menu bar).
-fn place_window(window: &tauri::WebviewWindow, corner: Corner) -> tauri::Result<()> {
-    if let Some(m) = window.current_monitor()? {
-        let wa = m.work_area();
-        let area = Rect { x: wa.position.x, y: wa.position.y, w: wa.size.width as i32, h: wa.size.height as i32 };
+/// The screen's usable area (above the Dock, below the menu bar) and its scale factor.
+fn screen_area(window: &tauri::WebviewWindow) -> Option<(Rect, f64)> {
+    let m = window.current_monitor().ok()??;
+    let wa = m.work_area();
+    Some((Rect { x: wa.position.x, y: wa.position.y, w: wa.size.width as i32, h: wa.size.height as i32 }, m.scale_factor()))
+}
+
+/// Moves the window into the chosen corner, plus any extra offsets from Advanced position.
+fn place_window(window: &tauri::WebviewWindow, s: &Settings) -> tauri::Result<()> {
+    if let Some((area, scale)) = screen_area(window) {
         let size = window.outer_size()?;
-        let margin = (CORNER_MARGIN * m.scale_factor()) as i32;
-        let (x, y) = layout::window_position(corner, area, size.width as i32, size.height as i32, margin);
+        let (w, h) = (size.width as i32, size.height as i32);
+        let margin = (CORNER_MARGIN * scale) as i32;
+        let (max_x, max_y) = layout::max_offsets(area, w, h, margin);
+        let ox = ((s.offset_x as f64 * scale) as i32).min(max_x);
+        let oy = ((s.offset_y as f64 * scale) as i32).min(max_y);
+        let (x, y) = layout::window_position(s.corner, area, w, h, margin + ox, margin + oy);
         window.set_position(PhysicalPosition::new(x, y))?;
     }
     Ok(())
 }
 
+/// Largest Advanced position offsets (logical px) that keep the mascot on this screen.
+#[tauri::command]
+fn position_limits(app: AppHandle) -> (u32, u32) {
+    let Some(w) = app.get_webview_window("main") else { return (0, 0) };
+    let (Some((area, scale)), Ok(size)) = (screen_area(&w), w.outer_size()) else { return (0, 0) };
+    let (x, y) = layout::max_offsets(area, size.width as i32, size.height as i32, (CORNER_MARGIN * scale) as i32);
+    ((x as f64 / scale) as u32, (y as f64 / scale) as u32)
+}
+
+/// Set while the user drags the mascot; window moves then count as a new position.
+struct Dragging {
+    on: std::sync::atomic::AtomicBool,
+    generation: std::sync::atomic::AtomicU64,
+}
+
+/// Starts moving the overlay window with the mouse (the mascot was pressed and dragged).
+#[tauri::command]
+fn drag_mascot(app: AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
+    app.state::<Dragging>().on.store(true, std::sync::atomic::Ordering::Relaxed);
+    window.start_dragging().map_err(|e| e.to_string())
+}
+
+/// After a drag settles, stores where the mascot was dropped as a corner plus offsets, so it
+/// stays there (and stays sensible if the screen size changes).
+fn on_main_moved(app: &AppHandle) {
+    use std::sync::atomic::Ordering;
+    let drag = app.state::<Dragging>();
+    if !drag.on.load(Ordering::Relaxed) {
+        return; // our own placement, not the user
+    }
+    let generation = drag.generation.fetch_add(1, Ordering::Relaxed) + 1;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let drag = app.state::<Dragging>();
+        if drag.generation.load(Ordering::Relaxed) != generation {
+            return; // still moving
+        }
+        drag.on.store(false, Ordering::Relaxed);
+        let Some(w) = app.get_webview_window("main") else { return };
+        let (Some((area, scale)), Ok(p), Ok(size)) = (screen_area(&w), w.outer_position(), w.outer_size()) else { return };
+        let s = current_settings(&app);
+        let win = Rect { x: p.x, y: p.y, w: size.width as i32, h: size.height as i32 };
+        let mascot = layout::mascot_rect(s.corner, win, (s.size as f64 * scale) as i32, (MASCOT_INSET * scale) as i32);
+        let (corner, ox, oy) = layout::placement_for_mascot(mascot, area, win.w, win.h, (MASCOT_INSET * scale) as i32, (CORNER_MARGIN * scale) as i32);
+        update_settings(&app, |s| {
+            s.corner = corner;
+            s.offset_x = (ox as f64 / scale).round() as u32;
+            s.offset_y = (oy as f64 / scale).round() as u32;
+        });
+    });
+}
+
 fn apply_settings(app: &AppHandle) {
     let s = current_settings(app);
     if let Some(w) = app.get_webview_window("main") {
-        let _ = place_window(&w, s.corner);
+        let _ = place_window(&w, &s);
     }
     let _ = app.emit("mascot-settings", &s);
     refresh_tray(app);
@@ -297,12 +359,21 @@ struct SettingsPatch {
     hidden: Option<bool>,
     mascot: Option<String>,
     animation: Option<settings::Animation>,
+    offset_x: Option<u32>,
+    offset_y: Option<u32>,
 }
 
 #[tauri::command]
 fn set_settings(app: AppHandle, patch: SettingsPatch) -> Settings {
     update_settings(&app, |s| {
-        if let Some(v) = patch.corner { s.corner = v; }
+        if let Some(v) = patch.corner {
+            // picking a corner snaps the mascot into it, unless offsets come with it
+            s.corner = v;
+            s.offset_x = 0;
+            s.offset_y = 0;
+        }
+        if let Some(v) = patch.offset_x { s.offset_x = v; }
+        if let Some(v) = patch.offset_y { s.offset_y = v; }
         if let Some(v) = patch.size { s.size = v.clamp(settings::MIN_SIZE, settings::MAX_SIZE); }
         if let Some(v) = patch.hidden { s.hidden = v; }
         if let Some(v) = patch.mascot { s.mascot = v; }
@@ -378,7 +449,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         other => {
             if let Some((_, _, c)) = CORNERS.iter().find(|(cid, _, _)| *cid == other) {
                 let c = *c;
-                update_settings(app, |s| s.corner = c);
+                update_settings(app, |s| { s.corner = c; s.offset_x = 0; s.offset_y = 0; });
             } else if let Some((_, _, px)) = SIZES.iter().find(|(sid, _, _)| *sid == other) {
                 let px = *px;
                 update_settings(app, |s| s.size = px);
@@ -395,7 +466,7 @@ fn spawn_hover_watch(app: AppHandle) {
         let mut was_inside = false;
         // Window geometry only changes with settings (corner, size) or a display change, so it is
         // cached; each poll then asks only for the cursor position.
-        let mut cached: Option<(settings::Corner, u32, Rect, f64, std::time::Instant)> = None;
+        let mut cached: Option<((settings::Corner, u32, u32, u32), Rect, f64, std::time::Instant)> = None;
         let mut delay = HOVER_POLL;
         loop {
             std::thread::sleep(delay);
@@ -406,18 +477,19 @@ fn spawn_hover_watch(app: AppHandle) {
                 delay = HIDDEN_POLL; // nothing to hover while hidden
                 continue;
             }
-            let stale = cached.as_ref().is_none_or(|(c, size, _, _, at)| {
-                *c != s.corner || *size != s.size || at.elapsed() > GEOMETRY_REFRESH
-            });
+            // the mascot moves when the corner, size or offsets change, or while it is dragged
+            let key = (s.corner, s.size, s.offset_x, s.offset_y);
+            let dragging = app.state::<Dragging>().on.load(std::sync::atomic::Ordering::Relaxed);
+            let stale = dragging || cached.as_ref().is_none_or(|(k, _, _, at)| *k != key || at.elapsed() > GEOMETRY_REFRESH);
             if stale {
                 if let (Ok(p), Ok(sz), Ok(scale)) = (w.outer_position(), w.outer_size(), w.scale_factor()) {
                     let win = Rect { x: p.x, y: p.y, w: sz.width as i32, h: sz.height as i32 };
                     let size = (s.size as f64 * scale) as i32;
                     let rect = layout::mascot_rect(s.corner, win, size, (MASCOT_INSET * scale) as i32);
-                    cached = Some((s.corner, s.size, rect, scale, std::time::Instant::now()));
+                    cached = Some((key, rect, scale, std::time::Instant::now()));
                 }
             }
-            let Some((_, _, rect, scale, _)) = cached else { continue };
+            let Some((_, rect, scale, _)) = cached else { continue };
             let Ok(c) = app.cursor_position() else { continue };
             let inside = !hidden && rect.contains(c.x, c.y);
             delay = layout::hover_delay(layout::distance_to(&rect, c.x, c.y), scale);
@@ -441,10 +513,11 @@ pub fn run() {
         .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
         .manage(BridgeError(Mutex::new(None)))
         .manage(Shown(std::sync::atomic::AtomicBool::new(false)))
+        .manage(Dragging { on: Default::default(), generation: Default::default() })
         .invoke_handler(tauri::generate_handler![
             bridge_error, mascot_install, mascot_uninstall, mascot_status, get_settings,
             power::low_power, show_context_menu,
-            set_settings, set_shown, get_open_at_login, set_open_at_login, quit_app
+            set_settings, set_shown, position_limits, drag_mascot, get_open_at_login, set_open_at_login, quit_app
         ])
         .setup(|app| {
             // No Dock icon and no app switcher entry: the mascot is an accessory overlay.
@@ -464,6 +537,12 @@ pub fn run() {
 
             let window = app.get_webview_window("main").expect("main window");
             window.set_ignore_cursor_events(true)?;
+            let moved = handle.clone();
+            window.on_window_event(move |e| {
+                if let tauri::WindowEvent::Moved(_) = e {
+                    on_main_moved(&moved);
+                }
+            });
             apply_settings(&handle);
             setup_login(&handle);
             spawn_hover_watch(handle.clone());

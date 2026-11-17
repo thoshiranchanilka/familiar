@@ -5,10 +5,10 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { MASCOTS, getMascot, type Animation } from "../ui/mascot/defs";
 import { createMascot } from "../ui/mascot/mascot";
-import { animationNote, cornerLabel, statusText, type Corner } from "./view";
+import { animationNote, cornerLabel, offsetLabels, statusText, type Corner } from "./view";
 
 interface Settings {
-  corner: Corner; size: number; hidden: boolean;
+  corner: Corner; size: number; hidden: boolean; offsetX: number; offsetY: number;
   mascot: string; animation: Animation;
 }
 
@@ -48,6 +48,31 @@ const cornerButtons = CORNER_ORDER.map((c) => {
   return { c, b };
 });
 
+// Advanced position: sliders for the distance from the corner's edges (dragging the mascot sets them too).
+const advToggle = $("advanced-toggle");
+advToggle.addEventListener("click", async () => {
+  const open = $("advanced").hidden;
+  $("advanced").hidden = !open;
+  advToggle.setAttribute("aria-expanded", String(open));
+  if (open) await refreshLimits();
+});
+async function refreshLimits() {
+  const [mx, my] = await invoke<[number, number]>("position_limits").catch(() => [0, 0] as [number, number]);
+  $<HTMLInputElement>("offset-x").max = String(mx);
+  $<HTMLInputElement>("offset-y").max = String(my);
+  render();
+}
+const offsetTimers: Partial<Record<"offsetX" | "offsetY", ReturnType<typeof setTimeout>>> = {};
+for (const [id, key] of [["offset-x", "offsetX"], ["offset-y", "offsetY"]] as const) {
+  const input = $<HTMLInputElement>(id);
+  input.addEventListener("input", () => {
+    $(`${id}-value`).textContent = `${input.value} px`;
+    clearTimeout(offsetTimers[key]);
+    offsetTimers[key] = setTimeout(() => save({ [key]: Number(input.value) }), SIZE_SEND_MS);
+  });
+}
+$("offset-reset").addEventListener("click", () => save({ offsetX: 0, offsetY: 0 }));
+
 // Animation levels
 const LEVELS: [Animation, string][] = [["full", "Full"], ["gentle", "Gentle"], ["still", "Still"]];
 const levelButtons = LEVELS.map(([level, label]) => {
@@ -66,6 +91,14 @@ let sizeTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingSize: number | undefined;
 size.addEventListener("input", () => {
   $("size-value").textContent = `${size.value} px`;
+  const labels = offsetLabels(settings.corner);
+  $("offset-x-label").textContent = labels.x;
+  $("offset-y-label").textContent = labels.y;
+  for (const [id, v] of [["offset-x", settings.offsetX], ["offset-y", settings.offsetY]] as const) {
+    const input = $<HTMLInputElement>(id);
+    if (document.activeElement !== input) input.value = String(v ?? 0);
+    $(`${id}-value`).textContent = `${input.value} px`;
+  }
   pendingSize = Number(size.value);
   if (sizeTimer) return;
   sizeTimer = setTimeout(() => {

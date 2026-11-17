@@ -75,6 +75,13 @@ input[type="range"] { flex: 1; accent-color: var(--accent); }
 }
 .segmented { display: inline-flex; gap: 6px; }
 .check { display: flex; align-items: center; gap: 8px; }
+#advanced-toggle { padding: 4px 0; border: 0; color: var(--accent); }
+.advanced { display: grid; gap: 10px; padding: 12px 14px; margin-top: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.advanced[hidden] { display: none; }
+.advanced .muted { margin: 0; }
+.slider { display: grid; grid-template-columns: 150px 1fr 64px; align-items: center; gap: 10px; font-size: 13px; }
+.slider output { font: 600 12px var(--font-display); color: var(--muted); text-align: right; }
+#offset-reset { justify-self: start; }
 .check input { accent-color: var(--accent); }
 
 .conn {

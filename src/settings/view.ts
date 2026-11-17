@@ -19,3 +19,10 @@ export function animationNote(lowPower: boolean): string {
 export function statusText(s: { connected: boolean }): string {
   return s.connected ? "Connected" : "Not connected";
 }
+
+export function offsetLabels(c: Corner): { x: string; y: string } {
+  return {
+    x: c.endsWith("r") ? "From the right edge" : "From the left edge",
+    y: c.startsWith("b") ? "From the bottom edge" : "From the top edge",
+  };
+}

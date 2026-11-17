@@ -6,6 +6,7 @@ import { isPresent } from "../mood/presence";
 import { initialState, nextDeadline, reduce } from "../mood/reducer";
 import type { MascotEvent, MascotState } from "../mood/types";
 import { formatUsage } from "./usagePanel";
+import { isDrag } from "./drag";
 import { moodLabel } from "./label";
 import { shouldShow } from "./visibility";
 import { createMascot } from "./mascot/mascot";
@@ -156,7 +157,23 @@ async function onMascotClick() {
     showNotice(String(e), ONBOARDING_MS);
   }
 }
-mascot.addEventListener("click", onMascotClick);
+// Press and move to drag the mascot anywhere; the core remembers where it's dropped.
+let press: { x: number; y: number } | undefined;
+let dragged = false;
+mascot.addEventListener("mousedown", (e) => {
+  if (e.button === 0) { press = { x: e.screenX, y: e.screenY }; dragged = false; }
+});
+mascot.addEventListener("mousemove", (e) => {
+  if (!press || !(e.buttons & 1) || !isDrag(press.x, press.y, e.screenX, e.screenY)) return;
+  press = undefined;
+  dragged = true;
+  invoke("drag_mascot").catch(() => {});
+});
+addEventListener("mouseup", () => { press = undefined; });
+mascot.addEventListener("click", () => {
+  if (dragged) { dragged = false; return; }
+  onMascotClick();
+});
 mascot.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   invoke("show_context_menu");

@@ -46,6 +46,7 @@ Connecting adds a few entries to `~/.claude/settings.json`: hooks that report ev
 
 - **Hover** over the mascot to see model and usage.
 - **Right-click** it for Settings, Hide, Connect or Disconnect, and Quit.
+- **Drag** it anywhere on screen. It remembers the spot. For exact placement, open **Settings → Position → Advanced** and use the two sliders, or **Reset to corner**.
 - **Settings** lets you pick a mascot, size, corner and animation level (Full, Gentle or Still), and switch **Open at login** on or off.
 - **Want to see it now?** Open Familiar again from Applications or Spotlight. The mascot comes back and Settings opens, even if you'd hidden it.
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { animationNote, cornerLabel, statusText } from "./view";
+import { animationNote, cornerLabel, offsetLabels, statusText } from "./view";
 
 describe("settings view helpers", () => {
   test("names each corner", () => {
@@ -15,5 +15,9 @@ describe("settings view helpers", () => {
   test("Claude Code status text", () => {
     expect(statusText({ connected: true })).toBe("Connected");
     expect(statusText({ connected: false })).toBe("Not connected");
+  });
+  test("offset sliders are named after the chosen corner's edges", () => {
+    expect(offsetLabels("br")).toEqual({ x: "From the right edge", y: "From the bottom edge" });
+    expect(offsetLabels("tl")).toEqual({ x: "From the left edge", y: "From the top edge" });
   });
 });
