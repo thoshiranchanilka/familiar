@@ -4,8 +4,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isPresent } from "../mood/presence";
 import { initialState, nextDeadline, reduce } from "../mood/reducer";
-import type { MascotEvent, MascotState, Mood } from "../mood/types";
+import type { MascotEvent, MascotState } from "../mood/types";
 import { formatUsage } from "./usagePanel";
+import { moodLabel } from "./label";
 import { shouldShow } from "./visibility";
 import { createMascot } from "./mascot/mascot";
 import { getMascot, type Animation } from "./mascot/defs";
@@ -58,11 +59,6 @@ mascot.setAttribute("aria-label", "Familiar mascot");
 stage.append(notice, panel, mascot);
 const ember = createMascot(mascot);
 
-const LABELS: Record<Mood, string> = {
-  greeting: "Hi!", idle: "", working: "Working…", thinking: "Thinking longer…",
-  done: "Done!", error: "Something went wrong", sleeping: "",
-};
-
 let state: MascotState = initialState(Date.now());
 let settings: Settings = { corner: "br", size: 128, hidden: false, mascot: "ember", animation: "gentle" };
 let serverError = "";
@@ -101,7 +97,7 @@ function render() {
   ember.setAnimation(settings.animation);
   ember.setMood(state.mood);
   setShown(show);
-  notice.textContent = serverError || (noticeUntil > now ? noticeText : "") || LABELS[state.mood];
+  notice.textContent = serverError || (noticeUntil > now ? noticeText : "") || moodLabel(state.mood, connected, getMascot(settings.mascot).name);
   panel.hidden = !hovering;
   if (hovering) renderPanel();
 }
@@ -167,7 +163,6 @@ mascot.addEventListener("contextmenu", (e) => {
 });
 invoke<boolean>("mascot_status").then((on) => {
   connected = on;
-  if (!on) showNotice(`Hi, I'm ${getMascot(settings.mascot).name}! Click me to connect Claude Code.`, ONBOARDING_MS);
   render();
 });
 stage.classList.add("gone");

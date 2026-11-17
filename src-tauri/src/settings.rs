@@ -78,10 +78,26 @@ pub fn load(home: &Path) -> Settings {
     s
 }
 
-/// True the first time it is called for these settings (Open at login should be turned on
-/// now); it records that, so later runs leave the user's choice alone.
-pub fn first_run_login(s: &mut Settings) -> bool {
-    !std::mem::replace(&mut s.login_set_up, true)
+#[derive(Debug, PartialEq)]
+pub enum LoginPlan {
+    /// Running from the disk image or a translocated copy that macOS deletes later:
+    /// a login item would point at a path that disappears, so wait for a proper install.
+    Skip,
+    /// Turn Open at login on; record `login_set_up` only if that succeeds.
+    EnableFirstTime,
+    /// Already set up once: leave the user's choice alone, but if it is on, re-register
+    /// so the login item follows the app if it was moved.
+    RefreshIfEnabled,
+}
+
+pub fn login_plan(login_set_up: bool, exe: &str) -> LoginPlan {
+    if exe.starts_with("/Volumes/") || exe.contains("/AppTranslocation/") {
+        LoginPlan::Skip
+    } else if login_set_up {
+        LoginPlan::RefreshIfEnabled
+    } else {
+        LoginPlan::EnableFirstTime
+    }
 }
 
 pub fn save(home: &Path, s: &Settings) -> std::io::Result<()> {
@@ -155,30 +171,35 @@ mod tests {
     }
 
     #[test]
-    fn first_run_enables_login_once() {
-        let mut s = Settings::default();
-        assert!(first_run_login(&mut s));
-        assert!(!first_run_login(&mut s));
+    fn login_is_left_alone_when_running_from_the_dmg_or_a_translocated_copy() {
+        assert_eq!(login_plan(false, "/Volumes/Familiar/Familiar.app/Contents/MacOS/familiar"), LoginPlan::Skip);
+        assert_eq!(login_plan(true, "/private/var/folders/x/AppTranslocation/ABC/d/Familiar.app/Contents/MacOS/familiar"), LoginPlan::Skip);
     }
+
+    #[test]
+    fn login_turns_on_first_time_then_refreshes_the_path() {
+        let exe = "/Applications/Familiar.app/Contents/MacOS/familiar";
+        assert_eq!(login_plan(false, exe), LoginPlan::EnableFirstTime);
+        assert_eq!(login_plan(true, exe), LoginPlan::RefreshIfEnabled);
+    }
+
 
     #[test]
     fn existing_file_without_marker_counts_as_first_run() {
         let h = home("nomarker");
         std::fs::create_dir_all(h.join(".claude-mascot")).unwrap();
         std::fs::write(h.join(".claude-mascot/settings.json"), r#"{"corner":"bl","mascot":"bolt"}"#).unwrap();
-        let mut s = load(&h);
-        assert!(first_run_login(&mut s));
+        let s = load(&h);
+        assert!(!s.login_set_up);
         assert_eq!(s.mascot, "bolt");
     }
 
     #[test]
     fn marker_survives_save_and_load() {
         let h = home("marker");
-        let mut s = Settings::default();
-        first_run_login(&mut s);
+        let s = Settings { login_set_up: true, ..Settings::default() };
         save(&h, &s).unwrap();
-        let mut again = load(&h);
-        assert!(!first_run_login(&mut again));
+        assert!(load(&h).login_set_up);
     }
 
     #[test]

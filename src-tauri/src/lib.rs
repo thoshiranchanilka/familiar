@@ -324,20 +324,29 @@ fn set_open_at_login(app: AppHandle, on: bool) -> Result<(), String> {
     if on { l.enable() } else { l.disable() }.map_err(|e| e.to_string())
 }
 
-/// Turns Open at login on the first time Familiar runs (the user can switch it off in
-/// Settings). Skipped in development builds and when `FAMILIAR_NO_LOGIN` is set (tests and
+/// Turns Open at login on the first time Familiar runs from a proper install (the user can
+/// switch it off in Settings), and keeps an existing login item pointing at the app's current
+/// location. Skipped in development builds and when `FAMILIAR_NO_LOGIN` is set (tests and
 /// the power check), so trying the app out never registers a login item.
-fn first_run_login(app: &AppHandle) {
+fn setup_login(app: &AppHandle) {
+    use tauri_plugin_autostart::ManagerExt;
     if cfg!(debug_assertions) || std::env::var_os("FAMILIAR_NO_LOGIN").is_some() {
         return;
     }
-    let state = app.state::<AppSettings>();
-    let mut s = state.0.lock().unwrap();
-    if settings::first_run_login(&mut s) {
-        use tauri_plugin_autostart::ManagerExt;
-        let _ = app.autolaunch().enable();
-        if let Ok(h) = home(app) {
-            let _ = settings::save(&h, &s);
+    let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let set_up = app.state::<AppSettings>().0.lock().unwrap().login_set_up;
+    let launcher = app.autolaunch();
+    match settings::login_plan(set_up, &exe) {
+        settings::LoginPlan::Skip => {}
+        settings::LoginPlan::EnableFirstTime => {
+            if launcher.enable().is_ok() {
+                update_settings(app, |s| s.login_set_up = true);
+            }
+        }
+        settings::LoginPlan::RefreshIfEnabled => {
+            if launcher.is_enabled().unwrap_or(false) {
+                let _ = launcher.enable(); // rewrites the login item with the current path
+            }
         }
     }
 }
@@ -445,7 +454,6 @@ pub fn run() {
             let handle = app.handle().clone();
             let loaded = home(&handle).map(|h| settings::load(&h)).unwrap_or_default();
             app.manage(AppSettings(Mutex::new(loaded)));
-            first_run_login(&handle);
 
             TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().expect("app icon").clone())
@@ -457,6 +465,7 @@ pub fn run() {
             let window = app.get_webview_window("main").expect("main window");
             window.set_ignore_cursor_events(true)?;
             apply_settings(&handle);
+            setup_login(&handle);
             spawn_hover_watch(handle.clone());
             power::spawn_watch(handle.clone());
             start_event_bridge(&handle);
