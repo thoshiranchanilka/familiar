@@ -19,7 +19,3 @@ export function animationNote(lowPower: boolean): string {
 export function statusText(s: { connected: boolean }): string {
   return s.connected ? "Connected" : "Not connected";
 }
-
-export function desktopText(running: boolean): string {
-  return running ? "Detected" : "Not running";
-}

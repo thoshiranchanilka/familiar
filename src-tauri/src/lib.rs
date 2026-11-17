@@ -2,7 +2,6 @@ pub mod normalize;
 pub mod server;
 pub mod token;
 pub mod installer;
-pub mod desktop_monitor;
 pub mod settings;
 pub mod layout;
 pub mod power;
@@ -82,10 +81,8 @@ fn start_event_bridge(app: &tauri::AppHandle) {
         }
     }
     let (tx, rx) = std::sync::mpsc::channel();
-    match server::start(token, server::DEFAULT_PORT, tx.clone()) {
+    match server::start(token, server::DEFAULT_PORT, tx) {
         Ok(handle) => {
-            // Only the instance that owns the port watches Claude Desktop.
-            desktop_monitor::spawn(tx);
             app.manage(handle); // keep it alive for the app's lifetime
             let app = app.clone();
             std::thread::spawn(move || {
@@ -299,11 +296,6 @@ fn set_settings(app: AppHandle, patch: SettingsPatch) -> Settings {
 }
 
 #[tauri::command]
-fn desktop_status() -> bool {
-    desktop_monitor::claude_running()
-}
-
-#[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
 }
@@ -394,7 +386,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             bridge_error, mascot_install, mascot_uninstall, mascot_status, get_settings,
             power::low_power, show_context_menu,
-            set_settings, desktop_status, quit_app
+            set_settings, quit_app
         ])
         .setup(|app| {
             // No Dock icon and no app switcher entry: the mascot is an accessory overlay.

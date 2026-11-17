@@ -9,11 +9,10 @@ export interface Usage {
 }
 
 export type MascotEventName =
-  | "session_start" | "prompt" | "tool" | "stop" | "error" | "attention" | "session_end"
-  | "app_launch" | "app_focus" | "app_quit" | "activity_start" | "activity_stop" | "status";
+  | "session_start" | "prompt" | "tool" | "stop" | "error" | "attention" | "session_end" | "status";
 
 export interface MascotEvent {
-  source: "code" | "desktop";
+  source: "code";
   sessionId?: string;
   event: MascotEventName;
   model?: string;
@@ -29,8 +28,6 @@ export interface MascotState {
   model?: string;
   usage: Usage;
   sessions: Record<string, { working: boolean; startedAt: number; lastEventAt: number }>;
-  desktopActive: boolean;
-  desktopStartedAt: number;
   greetingUntil: number;
   doneUntil: number;
   errorUntil: number;

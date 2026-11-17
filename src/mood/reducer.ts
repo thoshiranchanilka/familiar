@@ -1,6 +1,6 @@
 import {
   DONE_HOLD_MS, ERROR_HOLD_MS, GREETING_MS, MIN_MOOD_MS, SESSION_FORGET_MS, SESSION_STALE_MS, SLEEP_AFTER_MS,
-  THINKING_AFTER_CODE_MS, THINKING_AFTER_DESKTOP_MS,
+  THINKING_AFTER_CODE_MS,
 } from "./config";
 import type { MascotEvent, MascotState, Mood } from "./types";
 
@@ -12,8 +12,6 @@ export function initialState(now: number): MascotState {
     since: now - MIN_MOOD_MS, // free to change immediately
     usage: {},
     sessions: {},
-    desktopActive: false,
-    desktopStartedAt: 0,
     greetingUntil: 0,
     doneUntil: 0,
     errorUntil: 0,
@@ -21,16 +19,13 @@ export function initialState(now: number): MascotState {
   };
 }
 
-/** The mood the facts call for right now, before anti-flicker. Priority: error > code > desktop > transient > idle/sleep. */
+/** The mood the facts call for right now, before anti-flicker. Priority: error > working > transient > idle/sleep. */
 function targetMood(s: MascotState, now: number): Mood {
   if (s.errorUntil > now) return "error";
   const working = Object.values(s.sessions).filter((x) => x.working && now - x.lastEventAt < SESSION_STALE_MS);
   if (working.length > 0) {
     const latest = Math.max(...working.map((x) => x.startedAt));
     return now - latest >= THINKING_AFTER_CODE_MS ? "thinking" : "working";
-  }
-  if (s.desktopActive) {
-    return now - s.desktopStartedAt >= THINKING_AFTER_DESKTOP_MS ? "thinking" : "working";
   }
   if (s.doneUntil > now) return "done";
   if (s.greetingUntil > now) return "greeting";
@@ -48,7 +43,6 @@ function applyEvent(s: MascotState, e: MascotEvent): MascotState {
 
   switch (e.event) {
     case "session_start":
-    case "app_launch":
       next.greetingUntil = t + GREETING_MS;
       break;
     case "prompt":
@@ -75,22 +69,9 @@ function applyEvent(s: MascotState, e: MascotEvent): MascotState {
     case "session_end":
       delete sessions[id];
       break;
-    case "activity_start":
-      if (!next.desktopActive) next.desktopStartedAt = t;
-      next.desktopActive = true;
-      break;
-    case "activity_stop":
-      if (next.desktopActive) next.doneUntil = t + DONE_HOLD_MS;
-      next.desktopActive = false;
-      break;
-    case "app_quit":
-      next.desktopActive = false;
-      break;
     case "status":
       if (e.model) next.model = e.model;
       if (e.usage) next.usage = { ...s.usage, ...e.usage };
-      break;
-    case "app_focus":
       break;
   }
   if (e.model && e.event !== "status") next.model = e.model;
@@ -108,7 +89,6 @@ export function nextDeadline(s: MascotState, now: number): number | undefined {
     if (!x.working) continue;
     candidates.push(x.startedAt + THINKING_AFTER_CODE_MS, x.lastEventAt + SESSION_STALE_MS);
   }
-  if (s.desktopActive) candidates.push(s.desktopStartedAt + THINKING_AFTER_DESKTOP_MS);
   if (s.mood !== "sleeping") candidates.push(s.lastActivityAt + SLEEP_AFTER_MS);
   const future = candidates.filter((t) => t > now);
   return future.length ? Math.min(...future) : undefined;

@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { MASCOTS, getMascot, type Animation } from "../ui/mascot/defs";
 import { createMascot } from "../ui/mascot/mascot";
-import { animationNote, cornerLabel, desktopText, statusText, type Corner } from "./view";
+import { animationNote, cornerLabel, statusText, type Corner } from "./view";
 
 interface Settings {
   corner: Corner; size: number; autoHide: boolean; hidden: boolean;
@@ -109,10 +109,8 @@ function render() {
 
 async function refreshStatus() {
   connected = await invoke<boolean>("mascot_status").catch(() => false);
-  const desktop = await invoke<boolean>("desktop_status").catch(() => false);
   $("code-status").textContent = statusText({ connected });
   $("code-toggle").textContent = connected ? "Disconnect" : "Connect";
-  $("desktop-status").textContent = desktopText(desktop);
 }
 
 async function init() {
@@ -122,7 +120,7 @@ async function init() {
   $("version").textContent = `Version ${await getVersion()}`;
   listen<Settings>("mascot-settings", (e) => { settings = e.payload; render(); });
   listen<boolean>("mascot-low-power", (e) => { lowPower = e.payload; render(); });
-  // Statuses can change while the window is in the background (menu bar, Claude Desktop launch).
+  // Statuses can change while the window is in the background (e.g. from the menu bar).
   getCurrentWindow().onFocusChanged(({ payload: focused }) => { if (focused) refreshStatus(); });
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { animationNote, cornerLabel, desktopText, statusText } from "./view";
+import { animationNote, cornerLabel, statusText } from "./view";
 
 describe("settings view helpers", () => {
   test("names each corner", () => {
@@ -15,9 +15,5 @@ describe("settings view helpers", () => {
   test("Claude Code status text", () => {
     expect(statusText({ connected: true })).toBe("Connected");
     expect(statusText({ connected: false })).toBe("Not connected");
-  });
-  test("Claude Desktop status text", () => {
-    expect(desktopText(true)).toBe("Detected");
-    expect(desktopText(false)).toBe("Not running");
   });
 });

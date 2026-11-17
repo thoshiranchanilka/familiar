@@ -23,7 +23,6 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 tiny_http = "0.12"
-sysinfo = { version = "0.38.4", default-features = false, features = ["system"] }
 tauri-plugin-single-instance = "2"
 
 
@@ -37,5 +36,5 @@ strip = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSRunningApplication", "NSApplication", "NSResponder"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSProcessInfo", "NSArray"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSProcessInfo"] }

@@ -4,7 +4,6 @@ import type { MascotEvent, MascotState } from "./types";
 
 const code = (event: MascotEvent["event"], ts: number, sessionId = "A", extra: Partial<MascotEvent> = {}): MascotEvent =>
   ({ source: "code", event, ts, sessionId, ...extra });
-const desk = (event: MascotEvent["event"], ts: number): MascotEvent => ({ source: "desktop", event, ts });
 const tick = (t: number) => ({ tick: t });
 const run = (s: MascotState, ...inputs: Parameters<typeof reduce>[1][]) => inputs.reduce(reduce, s);
 
@@ -34,22 +33,6 @@ describe("mood reducer", () => {
     expect(s.mood).toBe("working");
   });
 
-  test("code timing beats the desktop heuristic", () => {
-    const s = run(initialState(0), desk("activity_start", 0), code("prompt", 10_000), tick(20_000));
-    expect(s.mood).toBe("working");
-  });
-
-  test("desktop activity works, thinks after 20 s, then done and idle", () => {
-    let s = run(initialState(0), desk("activity_start", 0));
-    expect(s.mood).toBe("working");
-    s = reduce(s, tick(20_000));
-    expect(s.mood).toBe("thinking");
-    s = reduce(s, desk("activity_stop", 21_000));
-    expect(s.mood).toBe("done");
-    s = reduce(s, tick(23_000));
-    expect(s.mood).toBe("idle");
-  });
-
   test("error is held at least MIN_MOOD_MS even if a prompt follows", () => {
     let s = run(initialState(0), code("error", 1000));
     expect(s.mood).toBe("error");
@@ -59,10 +42,10 @@ describe("mood reducer", () => {
     expect(s.mood).toBe("working");
   });
 
-  test("falls asleep after 5 idle minutes and app_launch wakes with a greeting", () => {
+  test("falls asleep after 5 idle minutes and session_start wakes with a greeting", () => {
     let s = reduce(initialState(0), tick(300_000));
     expect(s.mood).toBe("sleeping");
-    s = reduce(s, desk("app_launch", 301_000));
+    s = reduce(s, code("session_start", 301_000));
     expect(s.mood).toBe("greeting");
   });
 
@@ -81,10 +64,10 @@ describe("mood reducer", () => {
   });
 
   test("brief activity gaps do not flicker through done", () => {
-    let s = run(initialState(0), desk("activity_start", 1000));
-    s = reduce(s, desk("activity_stop", 1300));
+    let s = run(initialState(0), code("prompt", 1000));
+    s = reduce(s, code("stop", 1300));
     expect(s.mood).toBe("working");
-    s = run(s, desk("activity_start", 1500), tick(2000));
+    s = run(s, code("prompt", 1500), tick(2000));
     expect(s.mood).toBe("working");
   });
 
@@ -134,10 +117,5 @@ describe("nextDeadline", () => {
   test("a deferred mood change wakes when the anti-flicker hold ends", () => {
     const s = run(initialState(0), code("error", 1000), code("prompt", 1300));
     expect(nextDeadline(s, 1301)).toBe(1800);
-  });
-
-  test("desktop activity next changes when thinking starts", () => {
-    const s = run(initialState(0), desk("activity_start", 0));
-    expect(nextDeadline(s, 1)).toBe(20_000);
   });
 });
