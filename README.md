@@ -1,6 +1,6 @@
 # Familiar
 
-A desk buddy for Claude Code. A small pixel mascot pops up in a corner of your Mac while you're using Claude Code, reacts to what Claude is doing, and goes away when you're done.
+**[Website & docs](https://thoshiranchanilka.github.io/familiar/)** · A desk buddy for Claude Code. A small pixel mascot pops up in a corner of your Mac while you're using Claude Code, reacts to what Claude is doing, and goes away when you're done.
 
 - **Moods:** idle, working, thinking longer, done, error and asleep, plus a little hello when a session starts.
 - **Usage at a glance:** hover over the mascot to see the current model, your 5-hour and weekly limits with reset times, and how much of the context window is used.
