@@ -118,7 +118,7 @@ Push a version tag, for example `git tag v0.3.0 && git push origin v0.3.0`. GitH
 
 ## License
 
-TBD. Choose one before publishing (MIT is a common choice for hobby projects).
+[MIT](LICENSE).
 
 ---
 

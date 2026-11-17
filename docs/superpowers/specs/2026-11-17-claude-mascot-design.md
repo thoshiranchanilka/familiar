@@ -3,7 +3,7 @@
 ## Context
 The user wants an animated desktop mascot that mirrors what Claude is doing (working, thinking longer, idle), shows the current model and usage, and pops out when Claude Code or Claude Desktop opens. Many intended users are non-technical and use only Claude Desktop, so install must be one-click and Desktop chat must be supported, even though it exposes far less data than Claude Code.
 
-Folder `/Users/thoshiranchanilka/Documents/CODE/Claude Puppet` is empty and not a git repo. Platform: macOS (Apple Silicon). Windows is out of scope for v1.
+The project folder is empty and not a git repo. Platform: macOS (Apple Silicon). Windows is out of scope for v1.
 
 ## Findings (verified from docs and this machine)
 - **Claude Code hooks:** `SessionStart`, `UserPromptSubmit`, `PreToolUse`/`PostToolUse`, `Stop`, `Notification`, `SubagentStart`/`SubagentStop`, `PreModelSwitch`/`PostModelSwitch`, `SessionEnd`. Hooks can be `type: "http"` and POST JSON to localhost. There is no "thinking" event, so we infer it from a timer.
